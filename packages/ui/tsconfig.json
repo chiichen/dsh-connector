@@ -3,6 +3,9 @@
   "include": ["."],
   "exclude": ["node_modules"],
   "compilerOptions": {
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "noEmit": true
   }
 }
