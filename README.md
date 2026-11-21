@@ -1,4 +1,4 @@
-# dsh-webhook-router
+# dsh-connector
 
 Turborepo scaffolded with `create-turbo -e with-vite`. Apps build with Vite 8 (Rolldown). Shared logic is tested with Vitest.
 
