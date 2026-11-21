@@ -1,5 +1,5 @@
 {
-  "name": "dsh-webhook-router",
+  "name": "dsh-connector",
   "private": true,
   "scripts": {
     "build": "turbo run build",
