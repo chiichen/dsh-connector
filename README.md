@@ -8,7 +8,12 @@ Turborepo scaffolded with `create-turbo -e with-vite`. Apps build with Vite 8 (R
 pnpm install
 pnpm exec turbo run build
 pnpm exec turbo run test
+pnpm exec turbo run typecheck
+pnpm exec turbo run oxlint
+pnpm exec turbo run oxfmt
 ```
+
+CI runs those Turborepo tasks on Node 24.22.3 (the scaffold requires Node >=24.20.0).
 
 ## Using this example
 

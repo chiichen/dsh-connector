@@ -6,6 +6,9 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "oxlint": "turbo run oxlint",
+    "oxfmt": "turbo run oxfmt",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {

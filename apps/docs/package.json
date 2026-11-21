@@ -1,13 +1,16 @@
 {
   "name": "docs",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --clearScreen false",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "oxlint": "oxlint",
+    "oxfmt": "oxfmt --check"
   },
   "dependencies": {
     "@repo/ui": "workspace:*"
@@ -16,6 +19,8 @@
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "eslint": "10.9.1",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
     "typescript": "7.0.2",
     "vite": "8.3.8"
   }
