@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { ConnectorTargetRequiredError, ConnectorValidationError } from "@dsh-connector/core";
-import { DefaultContextSessionStore } from "../src/context-store.js";
-import { ConnectorManager } from "../src/manager.js";
-import { DshSessionDriver } from "../src/session-driver.js";
 import {
+  ConnectorTargetRequiredError,
+  ConnectorValidationError,
+  defineConnector,
+} from "@dsh-connector/core";
+import { DefaultContextSessionStore } from "../src/context-store";
+import { ConnectorManager } from "../src/manager";
+import { DshSessionDriver } from "../src/session-driver";
+import {
+  githubSendSchema,
   MockAlertIngestConnector,
   MockGithubPrConnector,
   MockWecomNotifyConnector,
-} from "./mocks/mock-connectors.js";
-import { MockDshHost } from "./mocks/mock-dsh-host.js";
+} from "./mocks/mock-connectors";
+import { MockDshHost } from "./mocks/mock-dsh-host";
 
 describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
   it("routes inbound events with business IDs to a single DSH session and replies via non-empty context fallback", async () => {
@@ -196,16 +201,19 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
     ).toThrow(ConnectorValidationError);
 
     const gh = new MockGithubPrConnector();
-    const failingConnector = {
+    const failingConnector = defineConnector({
       name: "broken-svc",
-      sendSchema: gh.sendSchema,
+      getSender: () => ({
+        schema: githubSendSchema,
+        async send() {
+          return {};
+        },
+      }),
+      getReceiver: () => undefined,
       start() {
         throw new Error("Failed to connect socket");
       },
-      async send() {
-        return {};
-      },
-    };
+    });
 
     const manager = new ConnectorManager({
       connectors: [gh, failingConnector],

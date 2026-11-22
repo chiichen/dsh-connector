@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ConnectorObjectSchema } from "@dsh-connector/core";
 
 export type DshJsonPrimitiveType =
   | "object"
@@ -309,8 +310,9 @@ function normalizeNode(
   return fallbackAnySchema(annotations);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function zodToDshJsonSchema(schema: z.ZodObject<any>): DshObjectJsonSchema {
+export function zodToDshJsonSchema<TSchema extends ConnectorObjectSchema>(
+  schema: TSchema,
+): DshObjectJsonSchema {
   const rawRoot = z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<string, unknown>;
   const defs: Record<string, unknown> = {
     ...(typeof rawRoot["definitions"] === "object" && rawRoot["definitions"] !== null

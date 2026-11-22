@@ -9,9 +9,9 @@ import {
   isValidConnectorName,
   prependContextMarker,
   ConnectorValidationError,
-  type ConnectorBase,
+  type Connector,
   type ConnectorContextId,
-} from "../src/index.js";
+} from "../src";
 
 describe("ConnectorName validation", () => {
   it("accepts valid lowercase single-hyphen names", () => {
@@ -67,7 +67,11 @@ describe("ConnectorContextId validation", () => {
 });
 
 describe("createConnectorContext & stateless JSON serialization", () => {
-  const dummyConnector: ConnectorBase = { name: "tapd" };
+  const dummyConnector: Connector<"tapd"> = {
+    name: "tapd",
+    getSender: () => undefined,
+    getReceiver: () => undefined,
+  };
 
   it("creates frozen pure-JSON serializable context from connector instance or name", () => {
     const fromInstance = createConnectorContext(dummyConnector, "2001/story/10086");

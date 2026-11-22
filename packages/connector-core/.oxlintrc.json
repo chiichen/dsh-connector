@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "rules": {
+    "typescript/no-explicit-any": "error",
     "eslint/no-restricted-imports": [
       "error",
       {

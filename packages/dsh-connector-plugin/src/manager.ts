@@ -3,27 +3,22 @@ import {
   ConnectorValidationError,
   assertNonEmptyContextId,
   assertValidConnectorName,
-  createConnectorContext,
   createDefaultContextIdGenerator,
-  isReceivableConnector,
-  isSendableConnector,
-  isWebhookConnector,
-  type AnyConnector,
+  type Connector,
   type ConnectorContext,
   type ConnectorContextIdGenerator,
   type ConnectorInboundPrompt,
   type ConnectorLogger,
-  type ConnectorRuntimeContext,
+  type ConnectorReceiver,
+  type ConnectorReceiverContext,
+  type ConnectorSender,
   type ConnectorSendOptions,
   type ConnectorSendResult,
   type InboundDeliveryMeta,
-  type ReceivableConnector,
-  type SendableConnector,
-  type WebhookConnector,
 } from "@dsh-connector/core";
-import { toContextHashKey, type ContextSessionStore } from "./context-store.js";
-import type { SessionDriver } from "./session-driver.js";
-import { KeyedSerialQueue, TtlDeduplicator } from "./reliability.js";
+import { toContextHashKey, type ContextSessionStore } from "./context-store";
+import { KeyedSerialQueue, TtlDeduplicator } from "./reliability";
+import type { SessionDriver } from "./session-driver";
 
 const NOOP_LOGGER: ConnectorLogger = {
   debug() {},
@@ -32,8 +27,19 @@ const NOOP_LOGGER: ConnectorLogger = {
   error() {},
 };
 
+export interface RegisteredConnectorEntry {
+  readonly connector: Connector;
+  readonly sender: ConnectorSender | undefined;
+  readonly receiver: ConnectorReceiver | undefined;
+}
+
+export interface SendableConnectorEntry {
+  readonly connector: Connector;
+  readonly sender: ConnectorSender;
+}
+
 export interface ConnectorManagerOptions {
-  readonly connectors: readonly AnyConnector[];
+  readonly connectors: readonly Connector[];
   readonly contextStore: ContextSessionStore;
   readonly sessionDriver: SessionDriver;
   readonly contextIdGenerator?: ConnectorContextIdGenerator;
@@ -68,8 +74,8 @@ function renderDefaultInboundEnvelope(
 }
 
 export class ConnectorManager {
-  private readonly connectors = new Map<string, AnyConnector>();
-  private readonly startedConnectors: AnyConnector[] = [];
+  private readonly entries = new Map<string, RegisteredConnectorEntry>();
+  private readonly startedConnectors: Connector[] = [];
   private readonly contextStore: ContextSessionStore;
   private readonly sessionDriver: SessionDriver;
   private readonly contextIdGenerator: ConnectorContextIdGenerator;
@@ -89,36 +95,48 @@ export class ConnectorManager {
 
     for (const connector of options.connectors) {
       assertValidConnectorName(connector.name);
-      if (this.connectors.has(connector.name)) {
+      if (this.entries.has(connector.name)) {
         throw new ConnectorValidationError(
           `Duplicate connector name "${connector.name}" registered in ConnectorManager.`,
           { connectorName: connector.name },
         );
       }
-      this.connectors.set(connector.name, connector);
+      this.entries.set(connector.name, {
+        connector,
+        sender: connector.getSender(),
+        receiver: connector.getReceiver(),
+      });
     }
   }
 
-  getConnector(name: string): AnyConnector | undefined {
-    return this.connectors.get(name);
+  getConnector(name: string): Connector | undefined {
+    return this.entries.get(name)?.connector;
   }
 
-  getSendableConnectors(): SendableConnector[] {
-    return [...this.connectors.values()].filter(isSendableConnector);
+  getReceiver(name: string): ConnectorReceiver | undefined {
+    return this.entries.get(name)?.receiver;
   }
 
-  getWebhookConnectors(): WebhookConnector[] {
-    return [...this.connectors.values()].filter(isWebhookConnector);
+  getSendableEntries(): SendableConnectorEntry[] {
+    const result: SendableConnectorEntry[] = [];
+    for (const entry of this.entries.values()) {
+      if (entry.sender !== undefined) {
+        result.push({ connector: entry.connector, sender: entry.sender });
+      }
+    }
+    return result;
   }
 
   async startAll(): Promise<void> {
     try {
-      for (const connector of this.connectors.values()) {
-        const runtimeCtx = this.buildRuntimeContext(connector);
-        await connector.init?.(runtimeCtx);
+      for (const { connector, receiver } of this.entries.values()) {
+        if (receiver !== undefined) {
+          const receiverCtx = this.buildReceiverContext(connector, receiver);
+          await receiver.init?.(receiverCtx);
+        }
       }
 
-      for (const connector of this.connectors.values()) {
+      for (const { connector } of this.entries.values()) {
         await connector.start?.();
         this.startedConnectors.push(connector);
       }
@@ -148,13 +166,13 @@ export class ConnectorManager {
     rawParams: unknown,
     options?: ConnectorSendOptions,
   ): Promise<ConnectorSendResult> {
-    const connector = this.connectors.get(connectorName);
-    if (connector === undefined) {
+    const entry = this.entries.get(connectorName);
+    if (entry === undefined) {
       throw new ConnectorError(`Unknown connector "${connectorName}".`, {
         connectorName,
       });
     }
-    if (!isSendableConnector(connector)) {
+    if (entry.sender === undefined) {
       throw new ConnectorValidationError(
         `Connector "${connectorName}" does not support outbound send capability.`,
         { connectorName },
@@ -166,7 +184,7 @@ export class ConnectorManager {
       });
     }
 
-    const parsed = connector.sendSchema.safeParse(rawParams);
+    const parsed = entry.sender.schema.safeParse(rawParams);
     if (!parsed.success) {
       throw new ConnectorValidationError(
         `Invalid parameters for connector "${connectorName}": ${formatZodIssues(parsed.error.issues)}`,
@@ -176,35 +194,29 @@ export class ConnectorManager {
 
     const context = await this.contextStore.getOrCreateContext(
       currentSessionId,
-      connector,
+      entry.connector,
       this.contextIdGenerator,
     );
 
-    return connector.send(context, parsed.data, options);
+    return entry.sender.send(context, parsed.data, options);
   }
 
-  private buildRuntimeContext(connector: AnyConnector): ConnectorRuntimeContext {
-    const createContext = (contextId?: string): ConnectorContext => {
-      const resolvedId =
-        contextId !== undefined ? contextId : this.contextIdGenerator.generate(connector.name);
-      return createConnectorContext(connector, resolvedId);
-    };
-
-    const onReceive = isReceivableConnector(connector)
-      ? (context: ConnectorContext, rawParams: unknown, meta?: InboundDeliveryMeta) =>
-          this.handleInbound(connector, context, rawParams, meta)
-      : undefined;
-
+  private buildReceiverContext(
+    connector: Connector,
+    receiver: ConnectorReceiver,
+  ): ConnectorReceiverContext {
     return {
-      createContext,
+      allocateContextId: () => this.contextIdGenerator.generate(connector.name),
       contextIdGenerator: this.contextIdGenerator,
-      ...(onReceive !== undefined ? { onReceive } : {}),
+      onReceive: (context: ConnectorContext, rawParams: unknown, meta?: InboundDeliveryMeta) =>
+        this.handleInbound(connector, receiver, context, rawParams, meta),
       logger: this.logger,
     };
   }
 
   private async handleInbound(
-    connector: ReceivableConnector,
+    connector: Connector,
+    receiver: ConnectorReceiver,
     context: ConnectorContext,
     rawParams: unknown,
     meta?: InboundDeliveryMeta,
@@ -217,7 +229,7 @@ export class ConnectorManager {
     }
     assertNonEmptyContextId(context.contextId, connector.name);
 
-    const parsed = connector.receiveSchema.safeParse(rawParams);
+    const parsed = receiver.schema.safeParse(rawParams);
     if (!parsed.success) {
       throw new ConnectorValidationError(
         `Invalid inbound payload for connector "${connector.name}": ${formatZodIssues(parsed.error.issues)}`,
@@ -246,7 +258,7 @@ export class ConnectorManager {
         existingSessionId = undefined;
       }
 
-      const rawFormatted = connector.formatInbound?.(parsed.data, context);
+      const rawFormatted = receiver.formatInbound?.(parsed.data, context);
       const formatted: ConnectorInboundPrompt =
         typeof rawFormatted === "string"
           ? { text: rawFormatted }

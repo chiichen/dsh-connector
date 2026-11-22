@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ConnectorLogger } from "@dsh-connector/core";
-import type { DshKvTableLike } from "./context-store.js";
-import type { DshObjectJsonSchema } from "./zod-json-schema.js";
+import type { DshKvTableLike } from "./context-store";
+import type { DshObjectJsonSchema } from "./zod-json-schema";
 
 export interface DshTextPartLike {
   readonly type: "text";

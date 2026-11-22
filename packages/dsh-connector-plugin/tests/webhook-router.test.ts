@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DefaultContextSessionStore } from "../src/context-store.js";
-import { ConnectorManager } from "../src/manager.js";
-import { DshSessionDriver } from "../src/session-driver.js";
-import { createStandaloneWebhookServer, mountConnectorWebhooks } from "../src/webhook-router.js";
-import { MockAlertIngestConnector, MockWecomNotifyConnector } from "./mocks/mock-connectors.js";
-import { MockDshHost } from "./mocks/mock-dsh-host.js";
+import { DefaultContextSessionStore } from "../src/context-store";
+import { ConnectorManager } from "../src/manager";
+import { DshSessionDriver } from "../src/session-driver";
+import { createStandaloneWebhookServer, mountConnectorWebhooks } from "../src/webhook-router";
+import { MockAlertIngestConnector, MockWecomNotifyConnector } from "./mocks/mock-connectors";
+import { MockDshHost } from "./mocks/mock-dsh-host";
 
 describe("webhook-router", () => {
   it("registers prefix route with auth: 'anonymous' on DSH webServer", async () => {

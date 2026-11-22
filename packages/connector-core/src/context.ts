@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { ConnectorValidationError } from "./errors.js";
+import { ConnectorValidationError } from "./errors";
 import type {
-  ConnectorBase,
   ConnectorContext,
   ConnectorContextId,
   ConnectorContextIdGenerator,
   ConnectorName,
   ContextMarkerStyle,
-} from "./types.js";
+} from "./types";
 
 const CONNECTOR_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const MIN_CONNECTOR_NAME_LEN = 2;
@@ -53,25 +52,17 @@ export function assertNonEmptyContextId(
   }
 }
 
-export function createConnectorContext<TConnector extends ConnectorBase>(
-  connector: TConnector,
+export function createConnectorContext<const TName extends string>(
+  connectorOrName: { readonly name: TName } | TName,
   contextId: ConnectorContextId | string,
-): ConnectorContext<TConnector>;
-export function createConnectorContext<TName extends string>(
-  connectorName: TName,
-  contextId: ConnectorContextId | string,
-): ConnectorContext<ConnectorBase & { readonly name: TName }>;
-export function createConnectorContext(
-  connectorOrName: ConnectorBase | string,
-  contextId: ConnectorContextId | string,
-): ConnectorContext {
+): ConnectorContext<TName> {
   const connectorName =
     typeof connectorOrName === "string" ? connectorOrName : connectorOrName.name;
   assertValidConnectorName(connectorName);
   assertNonEmptyContextId(contextId, connectorName);
 
   return Object.freeze({
-    connectorName,
+    connectorName: connectorName as TName,
     contextId,
   });
 }

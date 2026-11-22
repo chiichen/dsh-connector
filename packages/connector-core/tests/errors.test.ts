@@ -5,7 +5,7 @@ import {
   ConnectorTargetRequiredError,
   ConnectorTransportError,
   ConnectorValidationError,
-} from "../src/index.js";
+} from "../src";
 
 describe("Connector error hierarchy", () => {
   it("preserves error inheritance, code, connectorName, and cause", () => {

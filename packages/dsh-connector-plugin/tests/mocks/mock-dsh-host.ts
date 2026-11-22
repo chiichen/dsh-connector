@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { PersistedContextRecord } from "../../src/context-store.js";
+import type { PersistedContextRecord } from "../../src/context-store";
 import type {
   DshAgentLike,
   DshCordisContextLike,
   DshOptionalServicesMap,
   DshToolDefinitionLike,
   DshWebServerRouteLike,
-} from "../../src/dsh-types.js";
+} from "../../src/dsh-types";
 
 export interface RecordedPrompt {
   readonly sessionId: string;
