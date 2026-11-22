@@ -57,10 +57,15 @@ export class MockAlertIngestConnector implements ReceiveOnlyConnector<
 > {
   readonly name = "alertmanager" as const;
   readonly receiveSchema = alertReceiveSchema;
+  stopped = false;
   private runtimeCtx?: ConnectorRuntimeContext<typeof alertReceiveSchema, MockAlertIngestConnector>;
 
   init(ctx: ConnectorRuntimeContext<typeof alertReceiveSchema, MockAlertIngestConnector>): void {
     this.runtimeCtx = ctx;
+  }
+
+  stop(): void {
+    this.stopped = true;
   }
 
   async simulateAlert(
@@ -205,6 +210,103 @@ export class MockGithubPrConnector implements BidirectionalConnector<
     return {
       externalId: `${repo}#${prNumber}-comment-${this.postedComments.length}`,
       summary: `Posted comment to ${repo}#${prNumber}`,
+    };
+  }
+
+  async handleWebhook(req: ConnectorWebhookRequest): Promise<ConnectorWebhookResponse> {
+    const bodyText = new TextDecoder().decode(req.rawBody);
+    const parsed = JSON.parse(bodyText) as z.input<typeof githubReceiveSchema> & {
+      eventId?: string;
+    };
+    const result = await this.simulateWebhookComment(
+      {
+        repo: parsed.repo,
+        prNumber: parsed.prNumber,
+        author: parsed.author,
+        commentBody: parsed.commentBody,
+      },
+      parsed.eventId !== undefined ? { idempotencyKey: parsed.eventId } : undefined,
+    );
+    return {
+      status: 202,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(result),
+    };
+  }
+}
+
+export const wecomBotSendSchema = z.object({
+  text: z.string().min(1),
+});
+
+export const wecomBotReceiveSchema = z.object({
+  text: z.string().min(1),
+});
+
+export class MockWecomBotConnector implements BidirectionalConnector<
+  typeof wecomBotSendSchema,
+  typeof wecomBotReceiveSchema,
+  ConnectorSendResult,
+  MockWecomBotConnector
+> {
+  readonly name = "wecom" as const;
+  readonly description = "Bidirectional WeCom bot supporting quote replies";
+  readonly sendSchema = wecomBotSendSchema;
+  readonly receiveSchema = wecomBotReceiveSchema;
+  stopped = false;
+  readonly sentMessages: Array<{
+    context: ConnectorContext<MockWecomBotConnector>;
+    wireText: string;
+  }> = [];
+
+  private runtimeCtx?: ConnectorRuntimeContext<typeof wecomBotReceiveSchema, MockWecomBotConnector>;
+
+  init(ctx: ConnectorRuntimeContext<typeof wecomBotReceiveSchema, MockWecomBotConnector>): void {
+    this.runtimeCtx = ctx;
+  }
+
+  stop(): void {
+    this.stopped = true;
+  }
+
+  formatInbound(params: z.output<typeof wecomBotReceiveSchema>) {
+    return { text: params.text };
+  }
+
+  async send(
+    context: ConnectorContext<MockWecomBotConnector>,
+    params: z.output<typeof wecomBotSendSchema>,
+  ): Promise<ConnectorSendResult> {
+    const wireText = prependContextMarker(params.text, context.contextId, "html-comment");
+    this.sentMessages.push({ context, wireText });
+    return {
+      externalId: `wecom-${this.sentMessages.length}`,
+      summary: "Sent WeCom message",
+    };
+  }
+
+  async handleWebhook(req: ConnectorWebhookRequest): Promise<ConnectorWebhookResponse> {
+    if (this.runtimeCtx?.onReceive === undefined) {
+      throw new Error("MockWecomBotConnector not initialized");
+    }
+    const parsed = JSON.parse(new TextDecoder().decode(req.rawBody)) as {
+      msgId?: string;
+      text: string;
+    };
+    const { contextId, cleanedContent } = extractContextMarker(parsed.text);
+    const ctx =
+      contextId !== undefined
+        ? this.runtimeCtx.createContext(contextId)
+        : this.runtimeCtx.createContext();
+    const res = await this.runtimeCtx.onReceive(
+      ctx,
+      { text: cleanedContent },
+      parsed.msgId !== undefined ? { idempotencyKey: parsed.msgId } : undefined,
+    );
+    return {
+      status: 202,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(res),
     };
   }
 }

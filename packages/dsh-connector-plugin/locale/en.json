@@ -1,0 +1,6 @@
+{
+  "plugin": {
+    "name": "DSH Connector Plugin",
+    "description": "Unified external service connector gateway and Agent tool bridge for DeepSeek Harness"
+  }
+}
