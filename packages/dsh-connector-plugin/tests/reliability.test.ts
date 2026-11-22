@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KeyedSerialQueue, TtlDeduplicator } from "../src/reliability.js";
+import { KeyedSerialQueue, TtlDeduplicator } from "../src/reliability";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

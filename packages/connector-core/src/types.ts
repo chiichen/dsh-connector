@@ -15,13 +15,18 @@ export type ConnectorContextId = string & { readonly __brand: "ConnectorContextI
 
 /**
  * Stateless, directly JSON-serializable Connector context value object.
- * Carries compile-time Connector type affinity without holding a runtime Connector instance.
+ * Parameterized on `TName` so `ConnectorContext<"tapd">` cannot be mixed with `ConnectorContext<"github">`.
  */
-export interface ConnectorContext<TConnector extends ConnectorBase = ConnectorBase> {
-  readonly connectorName: TConnector["name"];
+export interface ConnectorContext<TName extends string = string> {
+  readonly connectorName: TName;
   readonly contextId: ConnectorContextId;
-  readonly [CONNECTOR_TYPE_BRAND]?: TConnector;
+  readonly [CONNECTOR_TYPE_BRAND]?: TName;
 }
+
+/**
+ * Covariant base constraint for Zod v4 object schemas without `any`.
+ */
+export type ConnectorObjectSchema = z.ZodObject<z.core.$ZodShape, z.core.$ZodObjectConfig>;
 
 /**
  * Host-provided generator for non-empty unprefixed ConnectorContextId values (UUIDv4 by default).
@@ -47,9 +52,9 @@ export interface ConnectorInboundPrompt {
 
 export type ConnectorOnReceive<
   TReceiveSchema extends z.ZodType = z.ZodType,
-  TConnector extends ConnectorBase = ConnectorBase,
+  TName extends string = string,
 > = (
-  context: ConnectorContext<TConnector>,
+  context: ConnectorContext<TName>,
   params: z.input<TReceiveSchema>,
   meta?: InboundDeliveryMeta,
 ) => Promise<{ readonly sessionId: string; readonly deduplicated?: boolean }>;
@@ -61,13 +66,13 @@ export interface ConnectorLogger {
   error(msg: string, meta?: Record<string, unknown>): void;
 }
 
-export interface ConnectorRuntimeContext<
+export interface ConnectorReceiverContext<
   TReceiveSchema extends z.ZodType = z.ZodType,
-  TConnector extends ConnectorBase = ConnectorBase,
+  TName extends string = string,
 > {
-  readonly createContext: (contextId?: ConnectorContextId | string) => ConnectorContext<TConnector>;
+  allocateContextId(): ConnectorContextId;
   readonly contextIdGenerator: ConnectorContextIdGenerator;
-  readonly onReceive?: ConnectorOnReceive<TReceiveSchema, TConnector>;
+  readonly onReceive: ConnectorOnReceive<TReceiveSchema, TName>;
   readonly logger: ConnectorLogger;
 }
 
@@ -96,89 +101,57 @@ export interface ConnectorSendResult {
   readonly data?: Record<string, unknown>;
 }
 
-export interface ConnectorBase {
-  readonly name: string;
-  readonly displayName?: string;
+export interface ConnectorSender<
+  TSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
+  TResult extends ConnectorSendResult = ConnectorSendResult,
+  TName extends string = string,
+> {
   readonly description?: string;
+  readonly schema: TSchema;
+  send(
+    context: ConnectorContext<TName>,
+    params: z.output<TSchema>,
+    options?: ConnectorSendOptions,
+  ): Promise<TResult>;
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  init?(ctx: ConnectorRuntimeContext<any, any>): Promise<void> | void;
-  start?(): Promise<void> | void;
-  stop?(): Promise<void> | void;
+export interface ConnectorReceiver<
+  TSchema extends z.ZodType = z.ZodType,
+  TName extends string = string,
+> {
+  readonly schema: TSchema;
+  init?(ctx: ConnectorReceiverContext<TSchema, TName>): Promise<void> | void;
+  formatInbound?(
+    params: z.output<TSchema>,
+    context: ConnectorContext<TName>,
+  ): ConnectorInboundPrompt | string;
   handleWebhook?(req: ConnectorWebhookRequest): Promise<ConnectorWebhookResponse>;
 }
 
-export interface SendCapability<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSendSchema extends z.ZodObject<any> = z.ZodObject<any>,
+export interface Connector<
+  TName extends string = string,
+  TSendSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
+  TReceiveSchema extends z.ZodType = z.ZodType,
   TSendResult extends ConnectorSendResult = ConnectorSendResult,
-  TConnector extends ConnectorBase = ConnectorBase,
 > {
-  readonly sendSchema: TSendSchema;
-  readonly sendDescription?: string;
-  send(
-    context: ConnectorContext<TConnector>,
-    params: z.output<TSendSchema>,
-    options?: ConnectorSendOptions,
-  ): Promise<TSendResult>;
+  readonly name: TName;
+  readonly displayName?: string;
+  readonly description?: string;
+
+  getSender(): ConnectorSender<TSendSchema, TSendResult, TName> | undefined;
+  getReceiver(): ConnectorReceiver<TReceiveSchema, TName> | undefined;
+
+  start?(): Promise<void> | void;
+  stop?(): Promise<void> | void;
 }
 
-export interface ReceiveCapability<
+export function defineConnector<
+  const TName extends string,
+  TSendSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
   TReceiveSchema extends z.ZodType = z.ZodType,
-  TConnector extends ConnectorBase = ConnectorBase,
-> {
-  readonly receiveSchema: TReceiveSchema;
-  init(ctx: ConnectorRuntimeContext<TReceiveSchema, TConnector>): Promise<void> | void;
-  formatInbound?(
-    params: z.output<TReceiveSchema>,
-    context: ConnectorContext<TConnector>,
-  ): ConnectorInboundPrompt | string;
+  TSendResult extends ConnectorSendResult = ConnectorSendResult,
+>(
+  connector: Connector<TName, TSendSchema, TReceiveSchema, TSendResult>,
+): Connector<TName, TSendSchema, TReceiveSchema, TSendResult> {
+  return connector;
 }
-
-export type SendOnlyConnector<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSendSchema extends z.ZodObject<any> = z.ZodObject<any>,
-  TSendResult extends ConnectorSendResult = ConnectorSendResult,
-  TConnector extends ConnectorBase = ConnectorBase,
-> = ConnectorBase &
-  SendCapability<TSendSchema, TSendResult, TConnector> & {
-    readonly receiveSchema?: undefined;
-  };
-
-export type ReceiveOnlyConnector<
-  TReceiveSchema extends z.ZodType = z.ZodType,
-  TConnector extends ConnectorBase = ConnectorBase,
-> = ConnectorBase &
-  ReceiveCapability<TReceiveSchema, TConnector> & {
-    readonly sendSchema?: undefined;
-    readonly send?: undefined;
-  };
-
-export type BidirectionalConnector<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  TSendSchema extends z.ZodObject<any> = z.ZodObject<any>,
-  TReceiveSchema extends z.ZodType = z.ZodType,
-  TSendResult extends ConnectorSendResult = ConnectorSendResult,
-  TConnector extends ConnectorBase = ConnectorBase,
-> = ConnectorBase &
-  SendCapability<TSendSchema, TSendResult, TConnector> &
-  ReceiveCapability<TReceiveSchema, TConnector>;
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-export type SendableConnector =
-  | SendOnlyConnector<any, any, any>
-  | BidirectionalConnector<any, any, any, any>;
-
-export type ReceivableConnector =
-  | ReceiveOnlyConnector<any, any>
-  | BidirectionalConnector<any, any, any, any>;
-
-export type WebhookConnector = AnyConnector & {
-  handleWebhook(req: ConnectorWebhookRequest): Promise<ConnectorWebhookResponse>;
-};
-
-export type AnyConnector =
-  | SendOnlyConnector<any, any, any>
-  | ReceiveOnlyConnector<any, any>
-  | BidirectionalConnector<any, any, any, any>;
-/* eslint-enable @typescript-eslint/no-explicit-any */

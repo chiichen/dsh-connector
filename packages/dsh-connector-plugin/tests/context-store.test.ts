@@ -6,7 +6,7 @@ import {
   ConnectorValidationError,
   createConnectorContext,
   createDefaultContextIdGenerator,
-  type ConnectorBase,
+  type Connector,
   type ConnectorContextId,
 } from "@dsh-connector/core";
 import {
@@ -15,11 +15,23 @@ import {
   JsonFileContextStorageAdapter,
   parseContextHashKey,
   toContextHashKey,
-} from "../src/context-store.js";
+} from "../src/context-store";
 
-const tapdConnector: ConnectorBase = { name: "tapd" };
-const githubConnector: ConnectorBase = { name: "github" };
-const wecomConnector: ConnectorBase = { name: "wecom" };
+const tapdConnector: Connector<"tapd"> = {
+  name: "tapd",
+  getSender: () => undefined,
+  getReceiver: () => undefined,
+};
+const githubConnector: Connector<"github"> = {
+  name: "github",
+  getSender: () => undefined,
+  getReceiver: () => undefined,
+};
+const wecomConnector: Connector<"wecom"> = {
+  name: "wecom",
+  getSender: () => undefined,
+  getReceiver: () => undefined,
+};
 
 describe("ConnectorContextHashKey codec", () => {
   it("formats and parses ${connector_name}--${context_id} losslessly even when contextId contains --", () => {

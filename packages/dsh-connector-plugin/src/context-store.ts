@@ -6,13 +6,12 @@ import {
   assertNonEmptyContextId,
   assertValidConnectorName,
   createConnectorContext,
-  type ConnectorBase,
   type ConnectorContext,
   type ConnectorContextId,
   type ConnectorContextIdGenerator,
   type ConnectorName,
 } from "@dsh-connector/core";
-import { KeyedSerialQueue } from "./reliability.js";
+import { KeyedSerialQueue } from "./reliability";
 
 /**
  * Plugin-internal globally unique hash key formatted strictly as `${connector_name}--${context_id}`.
@@ -157,16 +156,16 @@ export class DshStorageDomainAdapter implements ContextStorageAdapter {
 export interface ContextSessionStore {
   getSessionId(context: ConnectorContext): Promise<string | undefined>;
   getSessionIdByHashKey(hashKey: ConnectorContextHashKey): Promise<string | undefined>;
-  getContext<TConnector extends ConnectorBase>(
+  getContext<const TName extends string = string>(
     sessionId: string,
-    connectorName: TConnector["name"],
-  ): Promise<ConnectorContext<TConnector> | undefined>;
+    connectorName: TName,
+  ): Promise<ConnectorContext<TName> | undefined>;
   getAllContexts(sessionId: string): Promise<Readonly<Record<string, ConnectorContext>>>;
-  getOrCreateContext<TConnector extends ConnectorBase>(
+  getOrCreateContext<const TName extends string>(
     sessionId: string,
-    connector: TConnector,
+    connectorOrName: { readonly name: TName } | TName,
     contextIdGenerator: ConnectorContextIdGenerator,
-  ): Promise<ConnectorContext<TConnector>>;
+  ): Promise<ConnectorContext<TName>>;
   bind(sessionId: string, context: ConnectorContext): Promise<void>;
   removeSession(sessionId: string): Promise<void>;
 }
@@ -217,12 +216,12 @@ export class DefaultContextSessionStore implements ContextSessionStore {
     return this.hashKeyToSession.get(hashKey);
   }
 
-  async getContext<TConnector extends ConnectorBase>(
+  async getContext<const TName extends string = string>(
     sessionId: string,
-    connectorName: TConnector["name"],
-  ): Promise<ConnectorContext<TConnector> | undefined> {
+    connectorName: TName,
+  ): Promise<ConnectorContext<TName> | undefined> {
     return this.sessionToContexts.get(sessionId)?.get(connectorName) as
-      | ConnectorContext<TConnector>
+      | ConnectorContext<TName>
       | undefined;
   }
 
@@ -272,20 +271,22 @@ export class DefaultContextSessionStore implements ContextSessionStore {
     });
   }
 
-  async getOrCreateContext<TConnector extends ConnectorBase>(
+  async getOrCreateContext<const TName extends string>(
     sessionId: string,
-    connector: TConnector,
+    connectorOrName: { readonly name: TName } | TName,
     contextIdGenerator: ConnectorContextIdGenerator,
-  ): Promise<ConnectorContext<TConnector>> {
-    const lockKey = `${sessionId}--${connector.name}`;
+  ): Promise<ConnectorContext<TName>> {
+    const connectorName =
+      typeof connectorOrName === "string" ? connectorOrName : connectorOrName.name;
+    const lockKey = `${sessionId}--${connectorName}`;
     return this.singleFlight.run(lockKey, async () => {
-      const existing = await this.getContext<TConnector>(sessionId, connector.name);
+      const existing = await this.getContext(sessionId, connectorName);
       if (existing !== undefined) {
         return existing;
       }
 
-      const generatedId = contextIdGenerator.generate(connector.name);
-      const created = createConnectorContext(connector, generatedId);
+      const generatedId = contextIdGenerator.generate(connectorName);
+      const created = createConnectorContext(connectorName, generatedId);
       await this.bind(sessionId, created);
       return created;
     });

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DefaultContextSessionStore } from "../src/context-store.js";
-import { ConnectorManager } from "../src/manager.js";
-import { DshSessionDriver } from "../src/session-driver.js";
-import { registerConnectorTools } from "../src/tool-bridge.js";
+import { DefaultContextSessionStore } from "../src/context-store";
+import { ConnectorManager } from "../src/manager";
+import { DshSessionDriver } from "../src/session-driver";
+import { registerConnectorTools } from "../src/tool-bridge";
 import {
   MockAlertIngestConnector,
   MockGithubPrConnector,
   MockWecomNotifyConnector,
-} from "./mocks/mock-connectors.js";
-import { MockDshHost } from "./mocks/mock-dsh-host.js";
+} from "./mocks/mock-connectors";
+import { MockDshHost } from "./mocks/mock-dsh-host";
 
 describe("registerConnectorTools", () => {
   it("registers tools only for sendable connectors, bridges sessionId & AbortSignal, and unregisters on dispose", async () => {

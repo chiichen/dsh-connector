@@ -1,6 +1,6 @@
 import {
   CONNECTOR_CORE_VERSION,
-  type AnyConnector,
+  type Connector,
   type ConnectorContextIdGenerator,
   type ConnectorLogger,
 } from "@dsh-connector/core";
@@ -16,20 +16,20 @@ import {
   type ContextStorageAdapter,
   type DshKvTableLike,
   type PersistedContextRecord,
-} from "./context-store.js";
-import type { DshCordisContextLike, DshOpenedDomainLike } from "./dsh-types.js";
-import { ConnectorManager } from "./manager.js";
-import { DshSessionDriver } from "./session-driver.js";
-import { registerConnectorTools } from "./tool-bridge.js";
+} from "./context-store";
+import type { DshCordisContextLike, DshOpenedDomainLike } from "./dsh-types";
+import { ConnectorManager } from "./manager";
+import { DshSessionDriver } from "./session-driver";
+import { registerConnectorTools } from "./tool-bridge";
 import {
   createStandaloneWebhookServer,
   mountConnectorWebhooks,
   type StandaloneWebhookServerHandle,
-} from "./webhook-router.js";
+} from "./webhook-router";
 
-export const DSH_CONNECTOR_PLUGIN_VERSION = CONNECTOR_CORE_VERSION;
+export const DSH_CONNECTOR_PLUGIN_VERSION: string = CONNECTOR_CORE_VERSION;
 
-export const name = "dsh-connector-plugin";
+export const name = "dsh-connector-plugin" as const;
 export const inject = ["agents", "sessions", "tools"] as const;
 
 const DEFAULT_STORAGE_TABLE = "connector_contexts";
@@ -50,7 +50,7 @@ export interface ConnectorPluginDeduplicationConfig {
 }
 
 export interface ConnectorPluginConfig {
-  readonly connectors?: readonly AnyConnector[];
+  readonly connectors?: readonly Connector[];
   readonly contextStore?: ContextSessionStore;
   readonly storageAdapter?: ContextStorageAdapter;
   readonly storageFilePath?: string;
@@ -301,19 +301,24 @@ export type {
   DshToolsServiceLike,
   DshWebServerLike,
   DshWebServerRouteLike,
-} from "./dsh-types.js";
-export { ConnectorManager, type ConnectorManagerOptions } from "./manager.js";
-export { KeyedSerialQueue, TtlDeduplicator, type TtlDeduplicatorOptions } from "./reliability.js";
+} from "./dsh-types";
+export {
+  ConnectorManager,
+  type ConnectorManagerOptions,
+  type RegisteredConnectorEntry,
+  type SendableConnectorEntry,
+} from "./manager";
+export { KeyedSerialQueue, TtlDeduplicator, type TtlDeduplicatorOptions } from "./reliability";
 export {
   DshSessionDriver,
   type DshSessionDriverOptions,
   type SessionDriver,
-} from "./session-driver.js";
+} from "./session-driver";
 export {
   formatConnectorToolName,
   registerConnectorTools,
   type ToolBridgeOptions,
-} from "./tool-bridge.js";
+} from "./tool-bridge";
 export {
   createStandaloneWebhookServer,
   createWebhookHttpHandler,
@@ -321,10 +326,10 @@ export {
   type StandaloneWebhookServerHandle,
   type StandaloneWebhookServerOptions,
   type WebhookRouterOptions,
-} from "./webhook-router.js";
+} from "./webhook-router";
 export {
   zodToDshJsonSchema,
   type DshJsonPrimitiveType,
   type DshJsonSchema,
   type DshObjectJsonSchema,
-} from "./zod-json-schema.js";
+} from "./zod-json-schema";

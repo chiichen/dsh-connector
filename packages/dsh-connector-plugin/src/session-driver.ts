@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DshCordisContextLike } from "./dsh-types.js";
+import type { DshCordisContextLike } from "./dsh-types";
 
 export interface DshSessionDriverOptions {
   readonly defaultCwd?: string;

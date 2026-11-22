@@ -1,4 +1,4 @@
-export const CONNECTOR_CORE_VERSION = "0.1.0";
+export const CONNECTOR_CORE_VERSION: string = "0.1.0";
 
 export {
   ConnectorAuthError,
@@ -9,7 +9,7 @@ export {
   type ConnectorErrorCode,
   type ConnectorErrorOptions,
   type ConnectorTransportErrorOptions,
-} from "./errors.js";
+} from "./errors";
 
 export {
   assertNonEmptyContextId,
@@ -20,39 +20,26 @@ export {
   isNonEmptyContextId,
   isValidConnectorName,
   prependContextMarker,
-} from "./context.js";
+} from "./context";
 
 export {
   defineConnector,
-  isBidirectionalConnector,
-  isReceivableConnector,
-  isSendableConnector,
-  isWebhookConnector,
-} from "./guards.js";
-
-export type {
-  AnyConnector,
-  BidirectionalConnector,
-  ConnectorBase,
-  ConnectorContext,
-  ConnectorContextId,
-  ConnectorContextIdGenerator,
-  ConnectorInboundPrompt,
-  ConnectorLogger,
-  ConnectorName,
-  ConnectorOnReceive,
-  ConnectorRuntimeContext,
-  ConnectorSendOptions,
-  ConnectorSendResult,
-  ConnectorWebhookRequest,
-  ConnectorWebhookResponse,
-  ContextMarkerStyle,
-  InboundDeliveryMeta,
-  ReceivableConnector,
-  ReceiveCapability,
-  ReceiveOnlyConnector,
-  SendableConnector,
-  SendCapability,
-  SendOnlyConnector,
-  WebhookConnector,
-} from "./types.js";
+  type Connector,
+  type ConnectorContext,
+  type ConnectorContextId,
+  type ConnectorContextIdGenerator,
+  type ConnectorInboundPrompt,
+  type ConnectorLogger,
+  type ConnectorName,
+  type ConnectorObjectSchema,
+  type ConnectorOnReceive,
+  type ConnectorReceiver,
+  type ConnectorReceiverContext,
+  type ConnectorSender,
+  type ConnectorSendOptions,
+  type ConnectorSendResult,
+  type ConnectorWebhookRequest,
+  type ConnectorWebhookResponse,
+  type ContextMarkerStyle,
+  type InboundDeliveryMeta,
+} from "./types";

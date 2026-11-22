@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { zodToDshJsonSchema, type DshJsonSchema } from "../src/zod-json-schema.js";
+import { zodToDshJsonSchema, type DshJsonSchema } from "../src/zod-json-schema";
 
 const ALLOWED_KEYWORDS = new Set([
   "type",

@@ -1,12 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import {
-  isWebhookConnector,
-  type ConnectorLogger,
-  type ConnectorWebhookRequest,
-} from "@dsh-connector/core";
-import type { DshWebServerLike } from "./dsh-types.js";
-import type { ConnectorManager } from "./manager.js";
+import type { ConnectorLogger, ConnectorWebhookRequest } from "@dsh-connector/core";
+import type { DshWebServerLike } from "./dsh-types";
+import type { ConnectorManager } from "./manager";
 
 const DEFAULT_BASE_PATH = "/webhooks/connectors";
 const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
@@ -122,8 +118,8 @@ export function createWebhookHttpHandler(
         return;
       }
 
-      const connector = manager.getConnector(connectorName);
-      if (connector === undefined || !isWebhookConnector(connector)) {
+      const receiver = manager.getReceiver(connectorName);
+      if (receiver?.handleWebhook === undefined) {
         writeResponse(
           res,
           404,
@@ -158,7 +154,7 @@ export function createWebhookHttpHandler(
         rawBody,
       };
 
-      const webhookRes = await connector.handleWebhook(webhookReq);
+      const webhookRes = await receiver.handleWebhook(webhookReq);
       writeResponse(res, webhookRes.status, webhookRes.headers, webhookRes.body);
     } catch (error) {
       options?.logger?.error("Unhandled error in connector webhook router", {

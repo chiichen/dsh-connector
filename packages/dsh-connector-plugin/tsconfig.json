@@ -1,6 +1,6 @@
 {
   "extends": "@repo/typescript-config/node-library.json",
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.mts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts"],
   "compilerOptions": {
     "noEmit": true
   }

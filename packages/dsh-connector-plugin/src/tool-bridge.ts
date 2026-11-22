@@ -1,7 +1,11 @@
-import { ConnectorValidationError, type SendableConnector } from "@dsh-connector/core";
-import type { DshToolsServiceLike } from "./dsh-types.js";
-import type { ConnectorManager } from "./manager.js";
-import { zodToDshJsonSchema, type DshObjectJsonSchema } from "./zod-json-schema.js";
+import {
+  ConnectorValidationError,
+  type Connector,
+  type ConnectorSender,
+} from "@dsh-connector/core";
+import type { DshToolsServiceLike } from "./dsh-types";
+import type { ConnectorManager } from "./manager";
+import { zodToDshJsonSchema, type DshObjectJsonSchema } from "./zod-json-schema";
 
 export interface ToolBridgeOptions {
   readonly toolNamePrefix?: string;
@@ -37,16 +41,17 @@ export function formatConnectorToolName(connectorName: string, prefix = "connect
 function registerSingleConnectorTool(
   toolsService: DshToolsServiceLike,
   manager: ConnectorManager,
-  connector: SendableConnector,
+  connector: Connector,
+  sender: ConnectorSender,
   toolNamePrefix: string,
 ): () => void {
   const toolName = formatConnectorToolName(connector.name, toolNamePrefix);
   const description =
-    connector.sendDescription ??
+    sender.description ??
     connector.description ??
     `Send a message or action via the "${connector.name}" external connector.`;
 
-  const parameters = zodToDshJsonSchema(connector.sendSchema);
+  const parameters = zodToDshJsonSchema(sender.schema);
 
   return toolsService.register({
     name: toolName,
@@ -107,8 +112,8 @@ export function registerConnectorTools(
   const prefix = options?.toolNamePrefix ?? "connector_send_";
   const disposers: Array<() => void> = [];
 
-  for (const connector of manager.getSendableConnectors()) {
-    disposers.push(registerSingleConnectorTool(toolsService, manager, connector, prefix));
+  for (const { connector, sender } of manager.getSendableEntries()) {
+    disposers.push(registerSingleConnectorTool(toolsService, manager, connector, sender, prefix));
   }
 
   return () => {

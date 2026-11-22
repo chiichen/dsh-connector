@@ -9,13 +9,13 @@ import {
   mountConnectorPlugin,
   name,
   type PersistedContextRecord,
-} from "../src/index.js";
+} from "../src";
 import {
   MockAlertIngestConnector,
   MockGithubPrConnector,
   MockWecomBotConnector,
-} from "./mocks/mock-connectors.js";
-import { MockDshHost } from "./mocks/mock-dsh-host.js";
+} from "./mocks/mock-connectors";
+import { MockDshHost } from "./mocks/mock-dsh-host";
 
 describe("dsh-connector-plugin Cordis E2E integration", () => {
   const tempDirs: string[] = [];
