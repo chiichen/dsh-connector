@@ -1,0 +1,6 @@
+{
+  "plugin": {
+    "name": "DSH 外部连接器插件",
+    "description": "面向 DeepSeek Harness 的统一外部服务连接器网关与 Agent 工具桥接插件"
+  }
+}

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { PersistedContextRecord } from "../../src/context-store.js";
 import type {
   DshAgentLike,
   DshCordisContextLike,
@@ -21,11 +22,17 @@ export class MockDshHost {
   readonly registeredTools = new Map<string, DshToolDefinitionLike>();
   readonly registeredRoutes: DshWebServerRouteLike[] = [];
   readonly disposers: Array<() => Promise<void> | void> = [];
+  storageDomainCloseCount = 0;
 
   private readonly useSessionController: boolean;
+  private readonly storageDomainBacking: Map<string, PersistedContextRecord> | undefined;
 
-  constructor(options?: { useSessionController?: boolean }) {
+  constructor(options?: {
+    useSessionController?: boolean;
+    storageDomainBacking?: Map<string, PersistedContextRecord>;
+  }) {
     this.useSessionController = options?.useSessionController ?? true;
+    this.storageDomainBacking = options?.storageDomainBacking;
   }
 
   deleteSessionInUi(sessionId: string): void {
@@ -80,6 +87,33 @@ export class MockDshHost {
         },
       },
     };
+
+    if (this.storageDomainBacking !== undefined) {
+      const backing = this.storageDomainBacking;
+      optionalServices.storageDomain = {
+        open: async (_spec: unknown) => ({
+          table: (tableName: string) => ({
+            entries: async () => {
+              const prefix = `${tableName}:`;
+              const rows: Array<readonly [string, PersistedContextRecord]> = [];
+              for (const [k, v] of backing.entries()) {
+                if (k.startsWith(prefix)) {
+                  rows.push([k.slice(prefix.length), v] as const);
+                }
+              }
+              return rows;
+            },
+            set: async (key: string, value: PersistedContextRecord) => {
+              backing.set(`${tableName}:${key}`, value);
+            },
+            delete: async (key: string) => backing.delete(`${tableName}:${key}`),
+          }),
+          close: async () => {
+            this.storageDomainCloseCount += 1;
+          },
+        }),
+      };
+    }
 
     if (this.useSessionController) {
       optionalServices.sessionController = {
