@@ -1,0 +1,160 @@
+import { randomUUID } from "node:crypto";
+import { ConnectorValidationError } from "./errors.js";
+import type {
+  ConnectorBase,
+  ConnectorContext,
+  ConnectorContextId,
+  ConnectorContextIdGenerator,
+  ConnectorName,
+  ContextMarkerStyle,
+} from "./types.js";
+
+const CONNECTOR_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const MIN_CONNECTOR_NAME_LEN = 2;
+const MAX_CONNECTOR_NAME_LEN = 32;
+
+const CONTROL_CHARS_RE = /[\r\n\0]/;
+
+export function isValidConnectorName(name: string): name is ConnectorName {
+  return (
+    typeof name === "string" &&
+    name.length >= MIN_CONNECTOR_NAME_LEN &&
+    name.length <= MAX_CONNECTOR_NAME_LEN &&
+    CONNECTOR_NAME_RE.test(name)
+  );
+}
+
+export function assertValidConnectorName(name: string): asserts name is ConnectorName {
+  if (!isValidConnectorName(name)) {
+    throw new ConnectorValidationError(
+      `Invalid connector name "${name}": must be 2..32 chars matching /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/ (no "--").`,
+      { connectorName: name },
+    );
+  }
+}
+
+export function isNonEmptyContextId(contextId: string): contextId is ConnectorContextId {
+  return (
+    typeof contextId === "string" &&
+    contextId.trim().length > 0 &&
+    !CONTROL_CHARS_RE.test(contextId)
+  );
+}
+
+export function assertNonEmptyContextId(
+  contextId: string,
+  connectorName?: string,
+): asserts contextId is ConnectorContextId {
+  if (!isNonEmptyContextId(contextId)) {
+    throw new ConnectorValidationError(
+      "ConnectorContextId must be a non-empty single-line string without null or newline characters.",
+      connectorName !== undefined ? { connectorName } : undefined,
+    );
+  }
+}
+
+export function createConnectorContext<TConnector extends ConnectorBase>(
+  connector: TConnector,
+  contextId: ConnectorContextId | string,
+): ConnectorContext<TConnector>;
+export function createConnectorContext<TName extends string>(
+  connectorName: TName,
+  contextId: ConnectorContextId | string,
+): ConnectorContext<ConnectorBase & { readonly name: TName }>;
+export function createConnectorContext(
+  connectorOrName: ConnectorBase | string,
+  contextId: ConnectorContextId | string,
+): ConnectorContext {
+  const connectorName =
+    typeof connectorOrName === "string" ? connectorOrName : connectorOrName.name;
+  assertValidConnectorName(connectorName);
+  assertNonEmptyContextId(contextId, connectorName);
+
+  return Object.freeze({
+    connectorName,
+    contextId,
+  });
+}
+
+export function createDefaultContextIdGenerator(): ConnectorContextIdGenerator {
+  return {
+    generate(connectorName: string): ConnectorContextId {
+      assertValidConnectorName(connectorName);
+      return randomUUID() as ConnectorContextId;
+    },
+  };
+}
+
+function escapeMarkerToken(raw: string): string {
+  return raw
+    .replace(/%/g, "%25")
+    .replace(/\]/g, "%5D")
+    .replace(/>/g, "%3E")
+    .replace(/\s/g, encodeURIComponent);
+}
+
+function unescapeMarkerToken(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+const STANDALONE_MARKER_LINE_RE =
+  /^(?<quotes>(?:\s*>\s*)*)(?:<!--\s*dsh-ctx:(?<htmlToken>[^\s>]+)\s*-->|\[#ctx:(?<bracketToken>[^\]\s]+)\])\s*$/;
+
+export function prependContextMarker(
+  content: string,
+  contextId: ConnectorContextId | string,
+  style: ContextMarkerStyle = "html-comment",
+): string {
+  assertNonEmptyContextId(contextId);
+  const encodedToken = escapeMarkerToken(contextId);
+  const header =
+    style === "html-comment" ? `<!-- dsh-ctx:${encodedToken} -->` : `[#ctx:${encodedToken}]`;
+
+  const lines = content.split("\n");
+  const firstLine = lines[0] ?? "";
+  const existingTopMatch = STANDALONE_MARKER_LINE_RE.exec(firstLine);
+  const hasTopLevelUnquotedMarker =
+    existingTopMatch !== null && (existingTopMatch.groups?.["quotes"] ?? "").trim().length === 0;
+
+  const body = hasTopLevelUnquotedMarker ? lines.slice(1).join("\n") : content;
+  return body.length > 0 ? `${header}\n${body}` : header;
+}
+
+export function extractContextMarker(content: string): {
+  readonly contextId: ConnectorContextId | undefined;
+  readonly cleanedContent: string;
+} {
+  const lines = content.split("\n");
+  let bestDepth = Number.POSITIVE_INFINITY;
+  let bestContextId: ConnectorContextId | undefined;
+  const keptLines: string[] = [];
+
+  for (const line of lines) {
+    const match = STANDALONE_MARKER_LINE_RE.exec(line);
+    if (match === null) {
+      keptLines.push(line);
+      continue;
+    }
+
+    const quotesPrefix = match.groups?.["quotes"] ?? "";
+    const depth = (quotesPrefix.match(/>/g) ?? []).length;
+    const rawToken = match.groups?.["htmlToken"] ?? match.groups?.["bracketToken"];
+
+    if (rawToken !== undefined) {
+      const decoded = unescapeMarkerToken(rawToken);
+      if (isNonEmptyContextId(decoded) && depth < bestDepth) {
+        bestDepth = depth;
+        bestContextId = decoded;
+      }
+    }
+  }
+
+  return {
+    contextId: bestContextId,
+    cleanedContent: keptLines.join("\n"),
+  };
+}
