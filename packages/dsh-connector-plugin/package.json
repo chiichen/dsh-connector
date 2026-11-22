@@ -1,0 +1,54 @@
+{
+  "name": "dsh-connector-plugin",
+  "version": "0.1.0",
+  "description": "Unified DeepSeek Harness (dsh) plugin for external service connectors",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "locale"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "oxlint": "oxlint",
+    "oxfmt": "oxfmt --check"
+  },
+  "dependencies": {
+    "@dsh-connector/core": "workspace:*",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24.0.0",
+    "eslint": "10.9.1",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
+    "typescript": "7.0.2",
+    "vitest": "5.1.1"
+  },
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0",
+    "node": ">=24.20.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

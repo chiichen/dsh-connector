@@ -1,47 +1,21 @@
 # dsh-connector
 
-Turborepo scaffolded with `create-turbo -e with-vite`. Apps build with Vite 8 (Rolldown). Shared logic is tested with Vitest.
+Session-affiliated external service connector contracts and host plugin for [DeepSeek Harness (`dsh`)](https://github.com/deepseek-ai/deepseek-harness).
 
-## Build and test
+## Packages
+
+- `@dsh-connector/core` (`packages/connector-core`): Host-agnostic connector capability contracts, stateless `ConnectorContext` model, context marker codec, and error hierarchy (`zod` v4 peer dependency, zero `dsh` dependencies).
+- `dsh-connector-plugin` (`packages/dsh-connector-plugin`): Unified Cordis / `dsh` host plugin managing connector lifecycles, `SessionId <-> ConnectorContext` bidirectional mappings, Agent tool registration, and HTTP webhook routing.
+- `@repo/typescript-config` (`packages/typescript-config`): Shared TypeScript configurations.
+- `@repo/eslint-config` (`packages/eslint-config`): Shared ESLint configuration.
+
+## Development
 
 ```sh
 pnpm install
-pnpm exec turbo run build
-pnpm exec turbo run test
-pnpm exec turbo run typecheck
-pnpm exec turbo run oxlint
-pnpm exec turbo run oxfmt
+pnpm run build
+pnpm run typecheck
+pnpm run test
+pnpm run oxlint
+pnpm run oxfmt
 ```
-
-CI runs those Turborepo tasks on Node 24.22.3 (the scaffold requires Node >=24.20.0).
-
-## Using this example
-
-Run the following command:
-
-```sh
-pnpm dlx create-turbo@latest -e with-vite
-```
-
-## What's inside?
-
-This Turborepo includes the following packages and apps:
-
-### Apps and Packages
-
-- `docs`: a vanilla [Vite](https://vite.dev) TypeScript app
-- `web`: another vanilla [Vite](https://vite.dev) TypeScript app
-- `@repo/ui`: a stub component and utility library shared by both `web` and `docs`
-- `@repo/eslint-config`: shared ESLint configuration
-- `@repo/typescript-config`: shared `tsconfig.json` files
-
-Each package and app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already set up for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-- [Vitest](https://vitest.dev/) for unit tests in `@repo/ui`

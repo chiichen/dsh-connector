@@ -5,18 +5,25 @@ const tseslint = require("typescript-eslint");
 
 module.exports = tseslint.config(
   {
-    ignores: ["dist/**"],
+    ignores: ["dist/**", "node_modules/**"],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   eslintConfigPrettier,
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "**/*.mts"],
     languageOptions: {
-      globals: globals.browser,
+      globals: globals.node,
     },
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+        },
+      ],
     },
   },
 );
