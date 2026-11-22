@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": ["@deepseek-ai/*", "@cordiverse/*", "dsh-connector-plugin"]
+      }
+    ]
+  }
+}
