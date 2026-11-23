@@ -756,6 +756,84 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
       });
       setTimeout(() => midStrAbort.abort("string-mid-abort"), 2);
       await expect(midStrPromise).rejects.toBeInstanceOf(ConnectorTransportError);
+
+      // Cover remaining auth.ts / http.ts / sender.ts branch arms (empty array header, default fetchFn, empty error bodies, non-string token, non-Error throw, missing processQueryKey)
+      expect(
+        verifyDingTalkWebhookSignature({ timestamp: [], sign: undefined }, { signingSecret: "s" }),
+      ).toEqual({ ok: false, reason: "missing_or_invalid_timestamp" });
+
+      const defaultFetchTm = new DingTalkAccessTokenManager({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+      });
+      expect(defaultFetchTm).toBeInstanceOf(DingTalkAccessTokenManager);
+
+      const authDetailLessFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({}, 401)) // 401 without detail
+        .mockResolvedValueOnce(jsonResponse({}, 200)) // 200 without accessToken property
+        .mockRejectedValueOnce("raw-string-network-failure");
+
+      const detailLessTm = new DingTalkAccessTokenManager({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+        fetchFn: authDetailLessFetch,
+      });
+      await expect(detailLessTm.getAccessToken()).rejects.toBeInstanceOf(ConnectorAuthError);
+      await expect(detailLessTm.getAccessToken()).rejects.toBeInstanceOf(ConnectorAuthError);
+      await expect(
+        requestDingTalkJson({
+          connectorName: "dingtalk",
+          fetchFn: authDetailLessFetch,
+          url: "https://api.dingtalk.com/v1.0/ping",
+        }),
+      ).rejects.toThrow("raw-string-network-failure");
+
+      const senderBranchFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ accessToken: "tok-b", expireIn: 7200 }))
+        .mockResolvedValueOnce(jsonResponse({})) // oToMessages without processQueryKey
+        .mockResolvedValueOnce(jsonResponse({})) // groupMessages without processQueryKey
+        .mockResolvedValueOnce(jsonResponse({}, 403)) // OpenAPI 403 without detail
+        .mockResolvedValueOnce(jsonResponse({}, 500)) // OpenAPI 500 without detail
+        .mockResolvedValueOnce(jsonResponse({}, 500)); // sessionWebhook 500 without detail
+
+      const branchTm = new DingTalkAccessTokenManager({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+        fetchFn: senderBranchFetch,
+      });
+      const branchSender = new DingTalkSender({
+        connectorName: "dingtalk",
+        robotCode: "cli",
+        tokenManager: branchTm,
+        fetchFn: senderBranchFetch,
+      });
+      const otoNoKey = await branchSender.send(createConnectorContext("dingtalk", "p2p:u1"), {
+        text: "oto no key",
+      });
+      expect(otoNoKey.externalId).toBeUndefined();
+
+      const grpNoKey = await branchSender.send(createConnectorContext("dingtalk", "group:cid1"), {
+        text: "grp no key",
+      });
+      expect(grpNoKey.externalId).toBeUndefined();
+
+      await expect(
+        branchSender.send(createConnectorContext("dingtalk", "p2p:u1"), { text: "403 empty" }),
+      ).rejects.toBeInstanceOf(ConnectorAuthError);
+      await expect(
+        branchSender.send(createConnectorContext("dingtalk", "p2p:u1"), { text: "500 empty" }),
+      ).rejects.toBeInstanceOf(ConnectorTransportError);
+      await expect(
+        branchSender.send(createConnectorContext("dingtalk", "ctx"), {
+          text: "wh 500 empty",
+          sessionWebhook: "https://oapi.dingtalk.com/robot/sendBySession?session=s",
+        }),
+      ).rejects.toBeInstanceOf(ConnectorTransportError);
     });
   });
 });

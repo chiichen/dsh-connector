@@ -1200,6 +1200,66 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
       } finally {
         vi.unstubAllGlobals();
       }
+
+      // Gateway 401/500 without detail + WS close without code + non-Error send/ingest throws
+      const gwFailFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({}, 401))
+        .mockResolvedValueOnce(jsonResponse({}, 500))
+        .mockResolvedValueOnce(
+          jsonResponse({ endpoint: "wss://wss-open-connection.dingtalk.com", ticket: "tk-nc" }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ endpoint: "wss://wss-open-connection.dingtalk.com", ticket: "tk-str" }),
+        );
+
+      let wsAttempt = 0;
+      let strSocket: MockWebSocket | undefined;
+      const rxBranches = new DingTalkReceiver({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+        fetchFn: gwFailFetch,
+        createWebSocket: (url) => {
+          wsAttempt += 1;
+          const ws = new MockWebSocket(url);
+          if (wsAttempt === 1) {
+            queueMicrotask(() => ws.emit("close", {})); // event.code === undefined
+          } else {
+            strSocket = ws;
+            ws.send = () => {
+              throw "non-error-ws-send";
+            };
+            queueMicrotask(() => ws.simulateOpen());
+          }
+          return ws;
+        },
+      });
+      const idGen2 = createDefaultContextIdGenerator();
+      rxBranches.init({
+        contextIdGenerator: idGen2,
+        allocateContextId: () => idGen2.generate("dingtalk"),
+        onReceive: async () => {
+          throw "non-error-on-receive";
+        },
+        logger: { debug() {}, info() {}, warn() {}, error() {} },
+      });
+
+      await expect(rxBranches.startStream()).rejects.toBeInstanceOf(ConnectorAuthError);
+      await expect(rxBranches.startStream()).rejects.toBeInstanceOf(ConnectorTransportError);
+      await expect(rxBranches.startStream()).rejects.toBeInstanceOf(ConnectorTransportError);
+
+      await rxBranches.startStream();
+      strSocket!.simulateServerMessage({
+        type: "CALLBACK",
+        headers: { topic: "/v1.0/im/bot/messages/get", messageId: "cb-s" },
+        data: JSON.stringify({
+          text: { content: "hi" },
+          conversationId: "cid-1",
+          senderId: "u1",
+        }),
+      });
+      await rxBranches.stopStream();
     });
   });
 });
