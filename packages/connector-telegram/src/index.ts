@@ -10,6 +10,8 @@ export {
 
 export { splitTelegramMessageText } from "./chunking";
 
+export { TelegramConnector, createTelegramConnector } from "./connector";
+
 export {
   CONTENT_TYPE_APPLICATION_JSON,
   DEFAULT_ALLOWED_UPDATES,
@@ -37,6 +39,16 @@ export {
   type TelegramResolvedTarget,
   type TelegramTargetScope,
 } from "./context-target";
+
+export {
+  formatTelegramInboundPrompt,
+  normalizeTelegramUpdate,
+  parseRawTelegramUpdate,
+  type NormalizedTelegramInbound,
+  type NormalizeTelegramUpdateOptions,
+} from "./inbound";
+
+export { TelegramReceiver, type TelegramReceiverOptions } from "./receiver";
 
 export { TelegramSender, type TelegramSenderOptions } from "./sender";
 
