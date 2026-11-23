@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConnectorObjectSchema } from "@dsh-connector/core";
+import { ConnectorValidationError } from "@dsh-connector/core";
 
 export type DshJsonPrimitiveType =
   | "object"
@@ -310,7 +310,7 @@ function normalizeNode(
   return fallbackAnySchema(annotations);
 }
 
-export function zodToDshJsonSchema<TSchema extends ConnectorObjectSchema>(
+export function zodToDshJsonSchema<TSchema extends z.ZodType>(
   schema: TSchema,
 ): DshObjectJsonSchema {
   const rawRoot = z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<string, unknown>;
@@ -325,11 +325,9 @@ export function zodToDshJsonSchema<TSchema extends ConnectorObjectSchema>(
 
   const normalized = normalizeNode(rawRoot, defs, new Set());
   if (normalized.type !== "object") {
-    return {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    };
+    throw new ConnectorValidationError(
+      `DSH Agent tool parameters require an object root schema (received "${normalized.type ?? "union"}").`,
+    );
   }
 
   return {

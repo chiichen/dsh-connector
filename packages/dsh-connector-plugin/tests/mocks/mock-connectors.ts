@@ -6,7 +6,6 @@ import {
   prependContextMarker,
   type Connector,
   type ConnectorContext,
-  type ConnectorObjectSchema,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
   type ConnectorSender,
@@ -58,7 +57,7 @@ export const alertReceiveSchema = z.object({
 
 export class MockAlertIngestConnector implements Connector<
   "alertmanager",
-  ConnectorObjectSchema,
+  z.ZodType,
   typeof alertReceiveSchema
 > {
   readonly name = "alertmanager" as const;

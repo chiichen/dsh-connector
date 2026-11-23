@@ -24,11 +24,6 @@ export interface ConnectorContext<TName extends string = string> {
 }
 
 /**
- * Covariant base constraint for Zod v4 object schemas without `any`.
- */
-export type ConnectorObjectSchema = z.ZodObject<z.core.$ZodShape, z.core.$ZodObjectConfig>;
-
-/**
  * Host-provided generator for non-empty unprefixed ConnectorContextId values (UUIDv4 by default).
  * Shared by both inbound `onReceive` fallback allocation and outbound-first `send` initialization.
  */
@@ -102,7 +97,7 @@ export interface ConnectorSendResult {
 }
 
 export interface ConnectorSender<
-  TSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
+  TSchema extends z.ZodType = z.ZodType,
   TResult extends ConnectorSendResult = ConnectorSendResult,
   TName extends string = string,
 > {
@@ -130,7 +125,7 @@ export interface ConnectorReceiver<
 
 export interface Connector<
   TName extends string = string,
-  TSendSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
+  TSendSchema extends z.ZodType = z.ZodType,
   TReceiveSchema extends z.ZodType = z.ZodType,
   TSendResult extends ConnectorSendResult = ConnectorSendResult,
 > {
@@ -147,7 +142,7 @@ export interface Connector<
 
 export function defineConnector<
   const TName extends string,
-  TSendSchema extends ConnectorObjectSchema = ConnectorObjectSchema,
+  TSendSchema extends z.ZodType = z.ZodType,
   TReceiveSchema extends z.ZodType = z.ZodType,
   TSendResult extends ConnectorSendResult = ConnectorSendResult,
 >(

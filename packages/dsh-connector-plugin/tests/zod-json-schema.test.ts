@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { ConnectorValidationError } from "@dsh-connector/core";
 import { zodToDshJsonSchema, type DshJsonSchema } from "../src/zod-json-schema";
 
 const ALLOWED_KEYWORDS = new Set([
@@ -97,5 +98,21 @@ describe("zodToDshJsonSchema", () => {
     const nullableEmail = dshSchema.properties?.["reviewerEmail"];
     expect(nullableEmail?.oneOf).toBeDefined();
     expect(nullableEmail?.type).toBeUndefined();
+  });
+
+  it("accepts refined z.ZodType object schemas and rejects non-object root schemas with ConnectorValidationError", () => {
+    const refinedSchema: z.ZodType = z
+      .object({
+        targetId: z.string().min(1),
+        message: z.string().min(1),
+      })
+      .refine((val) => val.message.trim().length > 0);
+
+    const compiled = zodToDshJsonSchema(refinedSchema);
+    assertStrictDshSchema(compiled);
+    expect(compiled.type).toBe("object");
+    expect(compiled.required).toEqual(["targetId", "message"]);
+
+    expect(() => zodToDshJsonSchema(z.string())).toThrow(ConnectorValidationError);
   });
 });
