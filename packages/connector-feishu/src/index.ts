@@ -95,3 +95,64 @@ export {
   type CreateFeishuSenderOptions,
   type FeishuSendResult,
 } from "./sender";
+
+export {
+  extractTextFromFetchedMessage,
+  parseFeishuMessageReceiveEvent,
+  type FeishuGroupMentionPolicy,
+  type FeishuMessageFilterOptions,
+  type FeishuParsedEventOutcome,
+} from "./message-parser";
+
+export {
+  FeishuWsFragmentAssembler,
+  decodePbbp2Frame,
+  encodePbbp2Frame,
+  type DecodedFeishuPbbp2Frame,
+  type FeishuPbbp2Frame,
+  type FeishuPbbp2FrameInput,
+  type FeishuPbbp2Header,
+} from "./ws-protocol";
+
+export {
+  FeishuWsLongConnectionClient,
+  type FeishuWebSocketFactory,
+  type FeishuWebSocketLike,
+  type FeishuWsClientOptions,
+} from "./ws-client";
+
+export {
+  buildStreamingCardJsonV2,
+  nextCardKitSequence,
+  resolveFeishuStreamingAdapter,
+  type FeishuCardPlatformNumbers,
+  type FeishuCardStreamingConfig,
+  type FeishuCreateCardEntityRequest,
+  type FeishuCreateCardEntityResponseData,
+  type FeishuPatchMessageCardRequest,
+  type FeishuStreamAbortInput,
+  type FeishuStreamCardElementContentRequest,
+  type FeishuStreamCompleteInput,
+  type FeishuStreamHandle,
+  type FeishuStreamStartInput,
+  type FeishuStreamTarget,
+  type FeishuStreamUpdateInput,
+  type FeishuStreamingAdapter,
+  type FeishuStreamingOptions,
+  type FeishuStreamingStrategy,
+  type FeishuUpdateCardSettingsRequest,
+} from "./streaming";
+
+export {
+  createFeishuReceiver,
+  formatFeishuInboundPrompt,
+  type CreateFeishuReceiverOptions,
+  type FeishuReceiverRuntime,
+} from "./receiver";
+
+export {
+  FeishuConnector,
+  createFeishuConnector,
+  type FeishuConnectorOptions,
+  type FeishuReceiveMode,
+} from "./connector";
