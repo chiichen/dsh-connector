@@ -18,6 +18,7 @@ import {
   decodeEncodingAesKey,
   decryptWeixinCiphertext,
   encryptWeixinPlaintext,
+  formatWeixinP2pContextId,
   orderIlinkMessages,
   parseWeixinCallbackBody,
   splitWeixinText,
@@ -730,6 +731,179 @@ describe("Stage 4: Comprehensive edge-case coverage across crypto, xml, chunker,
         expect(step).toBe(2);
       });
       await ilinkConnector.stop();
+    });
+
+    it("covers HTTP retryable status codes, token error classification, nested code fences, and formatInbound / quote behaviors", async () => {
+      expect(() => formatWeixinP2pContextId("   ", "wx-custom")).toThrow(ConnectorValidationError);
+      expect(() => splitWeixinText("hello", { maxChars: 2 })).toThrow(ConnectorValidationError);
+
+      const nestedFenceText = ["````ts", "```nested", "`".repeat(3), "x".repeat(30), "````"].join(
+        "\n",
+      );
+      const nestedChunks = splitWeixinText(nestedFenceText, { maxChars: 24, maxUtf8Bytes: 0 });
+      expect(nestedChunks.length).toBeGreaterThan(1);
+
+      const tmNetErr = new WeixinAccessTokenManager({
+        appId: APP_ID,
+        appSecret: "sec",
+        fetchFn: async () => {
+          throw new Error("socket hang up");
+        },
+      });
+      await expect(tmNetErr.getAccessToken()).rejects.toThrow(
+        "Network error while requesting Weixin access_token.",
+      );
+
+      const tokenPayloads: unknown[] = [
+        { errcode: -1 },
+        { errcode: 45009, errmsg: "freq out of limit" },
+        { errcode: 50001 },
+        { errcode: 0 },
+        { access_token: "tok_fallback_ttl" },
+      ];
+      let tpIdx = 0;
+      const tmBranches = new WeixinAccessTokenManager({
+        appId: APP_ID,
+        appSecret: "sec",
+        fetchFn: async () => jsonResponse(tokenPayloads[tpIdx++]!),
+      });
+      await expect(tmBranches.getAccessToken()).rejects.toMatchObject({ retryable: true });
+      await expect(tmBranches.getAccessToken()).rejects.toMatchObject({ retryable: true });
+      await expect(tmBranches.getAccessToken()).rejects.toMatchObject({ retryable: false });
+      await expect(tmBranches.getAccessToken()).rejects.toThrow("empty access_token");
+      await expect(tmBranches.getAccessToken()).resolves.toBe("tok_fallback_ttl");
+
+      let officialCall = 0;
+      const officialClient = new WeixinApiClient({
+        connectorName: "wx",
+        mode: "official-account",
+        tokenManager: new WeixinAccessTokenManager({ accessToken: "static_tok" }),
+        fetchFn: async () => {
+          officialCall += 1;
+          if (officialCall === 1) {
+            return jsonResponse({ msgid: 987654 });
+          }
+          if (officialCall === 2) {
+            return jsonResponse({ errcode: 45009 });
+          }
+          if (officialCall === 3) {
+            return jsonResponse({}, 429);
+          }
+          if (officialCall === 4) {
+            return jsonResponse({}, 500);
+          }
+          return jsonResponse({}, 400);
+        },
+      });
+
+      const numericRes = await officialClient.sendCustomTextMessage({
+        openId: "u1",
+        content: "hello",
+      });
+      expect(numericRes.messageId).toBe("987654");
+      await expect(
+        officialClient.sendCustomTextMessage({ openId: "u1", content: "rate" }),
+      ).rejects.toMatchObject({ retryable: true });
+      await expect(
+        officialClient.sendCustomTextMessage({ openId: "u1", content: "429" }),
+      ).rejects.toMatchObject({ retryable: true, statusCode: 429 });
+      await expect(
+        officialClient.sendCustomTextMessage({ openId: "u1", content: "500" }),
+      ).rejects.toMatchObject({ retryable: true, statusCode: 500 });
+      await expect(
+        officialClient.sendCustomTextMessage({ openId: "u1", content: "400" }),
+      ).rejects.toMatchObject({ retryable: false, statusCode: 400 });
+
+      const unordered = [
+        { seq: "not-a-number", message_id: "1" },
+        { seq: "2", message_id: "2" },
+      ];
+      expect(orderIlinkMessages(unordered)).toEqual(unordered);
+
+      const receivedOfficial: WeixinReceiveParams[] = [];
+      const officialConnector = createWeixinConnector({
+        appId: APP_ID,
+        token: TOKEN,
+        encodingAesKey: AES_KEY_43,
+        accessToken: "static_at",
+        kfAccount: "kf@acct",
+        businessId: "biz_01",
+        aiMsgContext: { is_ai_msg: 1 },
+        fetchFn: async () => jsonResponse({ errcode: 0, msgid: "m_out" }),
+      });
+
+      const fmtCtx = createConnectorContext(officialConnector, "p2p:u1");
+      expect(
+        officialConnector.getReceiver().formatInbound!(
+          {
+            mode: "official-account",
+            messageId: "m1",
+            senderId: "u1",
+            msgType: "text",
+            text: "plain",
+          },
+          fmtCtx,
+        ),
+      ).toEqual({ title: "[Weixin] u1", text: "plain" });
+      expect(
+        officialConnector.getReceiver().formatInbound!(
+          {
+            mode: "ilink",
+            messageId: "m2",
+            senderId: "u1",
+            msgType: "text",
+            text: "reply",
+            quotedText: "line1\nline2",
+          },
+          fmtCtx,
+        ),
+      ).toEqual({ title: "[Weixin] u1", text: "> line1\n> line2\n\nreply" });
+
+      await officialConnector.getReceiver().init?.({
+        allocateContextId: () => createConnectorContext(officialConnector, "a").contextId,
+        contextIdGenerator: {
+          generate: () => createConnectorContext(officialConnector, "g").contextId,
+        },
+        onReceive: async (_ctx, params) => {
+          receivedOfficial.push(params as WeixinReceiveParams);
+          return { sessionId: "s1" };
+        },
+        logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+
+      const innerXml = [
+        "<xml>",
+        "<FromUserName>user_enc</FromUserName>",
+        "<CreateTime>not_numeric</CreateTime>",
+        "<MsgType>text</MsgType>",
+        "<Content>hello metadata</Content>",
+        "<MsgDataId>data_99</MsgDataId>",
+        "<Idx>1</Idx>",
+        "</xml>",
+      ].join("");
+      const cipher = encryptWeixinPlaintext({
+        encodingAesKey: AES_KEY_43,
+        plaintext: innerXml,
+        appId: APP_ID,
+      });
+      const msgSig = computeWeixinSignature([TOKEN, "invalid_ts", "n1", cipher]);
+      const resp = await officialConnector.getReceiver().handleWebhook!(
+        webhookReq({
+          query: { timestamp: "invalid_ts", nonce: "n1", msg_signature: msgSig },
+          body: `<xml><Encrypt><![CDATA[${cipher}]]></Encrypt></xml>`,
+        }),
+      );
+      expect(resp.status).toBe(200);
+      expect(receivedOfficial).toHaveLength(1);
+      expect(receivedOfficial[0]).toEqual({
+        mode: "official-account",
+        messageId: "user_enc:not_numeric",
+        senderId: "user_enc",
+        msgType: "text",
+        text: "hello metadata",
+        msgDataId: "data_99",
+        idx: "1",
+      });
     });
   });
 });
