@@ -692,4 +692,240 @@ describe("Stage 4 public barrel exports and comprehensive edge-case coverage", (
     await emptyDropReceiver.stopPolling();
     expect(emptyDropReceiver.getCurrentOffset()).toBe(0);
   });
+
+  it("covers receiver uninitialized webhook, deduplicated response, non-Error rejections, and mid-batch abort", async () => {
+    const generator = createDefaultContextIdGenerator();
+
+    // Uninitialized receiver returns 500 on webhook without botUsername
+    const uninitReceiver = new TelegramReceiver({
+      connectorName: "telegram",
+      botId: 42,
+      requireWebhookSecretToken: false,
+      apiClient: new TelegramApiClient({
+        botToken: SAMPLE_TOKEN,
+        fetchFn: vi.fn(async () => new Response("{}")),
+      }),
+    });
+    const uninitRes = await uninitReceiver.handleWebhook({
+      method: "POST",
+      pathname: "/webhook/telegram",
+      subPath: "",
+      query: new URLSearchParams(),
+      headers: {},
+      rawBody: new TextEncoder().encode(JSON.stringify({ update_id: 1 })),
+    });
+    expect(uninitRes.status).toBe(500);
+
+    // Deduplicated webhook response + non-Error string throw in webhook
+    let throwString = false;
+    uninitReceiver.init({
+      allocateContextId: () => generator.generate("telegram"),
+      contextIdGenerator: generator,
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      onReceive: async () => {
+        if (throwString) {
+          throw "webhook-string-failure";
+        }
+        return { sessionId: "s-dedup", deduplicated: true };
+      },
+    });
+    const dedupRes = await uninitReceiver.handleWebhook({
+      method: "POST",
+      pathname: "/webhook/telegram",
+      subPath: "",
+      query: new URLSearchParams(),
+      headers: {},
+      rawBody: new TextEncoder().encode(
+        JSON.stringify({
+          update_id: 2,
+          message: {
+            message_id: 1,
+            date: 100,
+            chat: { id: 7, type: "private" },
+            from: { id: 8, is_bot: false, first_name: "U" },
+            text: "hi",
+          },
+        }),
+      ),
+    });
+    expect(dedupRes.status).toBe(200);
+    expect(JSON.parse(typeof dedupRes.body === "string" ? dedupRes.body : "{}")).toMatchObject({
+      ok: true,
+      handled: true,
+      deduplicated: true,
+    });
+
+    throwString = true;
+    const stringErrRes = await uninitReceiver.handleWebhook({
+      method: "POST",
+      pathname: "/webhook/telegram",
+      subPath: "",
+      query: new URLSearchParams(),
+      headers: {},
+      rawBody: new TextEncoder().encode(
+        JSON.stringify({
+          update_id: 3,
+          message: {
+            message_id: 2,
+            date: 100,
+            chat: { id: 7, type: "private" },
+            from: { id: 8, is_bot: false, first_name: "U" },
+            text: "hi",
+          },
+        }),
+      ),
+    });
+    expect(stringErrRes.status).toBe(500);
+
+    // Polling: getMe without username, initialOffset set, non-Error poll & handler failures,
+    // mid-batch abort on second update, and post-abort resolved getUpdates
+    let pollStep = 0;
+    let resolveMidBatchDone!: () => void;
+    const midBatchDone = new Promise<void>((resolve) => {
+      resolveMidBatchDone = resolve;
+    });
+
+    const fastMidBatchReceiver = new TelegramReceiver({
+      connectorName: "telegram",
+      botId: 42,
+      polling: {
+        initialOffset: 10,
+        onUpdateError: "skip",
+      },
+      sleepFn: async () => {},
+      apiClient: new TelegramApiClient({
+        botToken: SAMPLE_TOKEN,
+        fetchFn: vi.fn(async (input, init) => {
+          const url = String(input);
+          if (url.endsWith("/getMe")) {
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                result: { id: 42, is_bot: true, first_name: "NamelessBot" },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          pollStep += 1;
+          if (pollStep === 1) {
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                result: [
+                  {
+                    update_id: 11,
+                    message: {
+                      message_id: 1,
+                      date: 100,
+                      chat: { id: 7, type: "private" },
+                      from: { id: 8, is_bot: false, first_name: "U" },
+                      text: "fail-string",
+                    },
+                  },
+                  {
+                    update_id: 12,
+                    message: {
+                      message_id: 2,
+                      date: 100,
+                      chat: { id: 7, type: "private" },
+                      from: { id: 8, is_bot: false, first_name: "U" },
+                      text: "abort-now",
+                    },
+                  },
+                  {
+                    update_id: 13,
+                    message: {
+                      message_id: 3,
+                      date: 100,
+                      chat: { id: 7, type: "private" },
+                      from: { id: 8, is_bot: false, first_name: "U" },
+                      text: "never-seen",
+                    },
+                  },
+                ],
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return await new Promise<Response>((resolve) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () =>
+                resolve(
+                  new Response(JSON.stringify({ ok: true, result: [] }), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              { once: true },
+            );
+          });
+        }),
+      }),
+    });
+    expect(fastMidBatchReceiver.getBotIdentity()).toEqual({ id: 42 });
+
+    const seenTexts: string[] = [];
+    fastMidBatchReceiver.init({
+      allocateContextId: () => generator.generate("telegram"),
+      contextIdGenerator: generator,
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      onReceive: async (_ctx, payload) => {
+        seenTexts.push(payload.text);
+        if (payload.text === "fail-string") {
+          throw "skip-string-err";
+        }
+        if (payload.text === "abort-now") {
+          void fastMidBatchReceiver.stopPolling().then(() => resolveMidBatchDone());
+        }
+        return { sessionId: "s-mid" };
+      },
+    });
+    await fastMidBatchReceiver.startPolling();
+    await midBatchDone;
+    expect(seenTexts).toEqual(["fail-string", "abort-now"]);
+    expect(fastMidBatchReceiver.getBotIdentity()).toEqual({
+      id: 42,
+      firstName: "NamelessBot",
+    });
+
+    // Post-abort resolved getUpdates path
+    let resolveInFlight!: () => void;
+    const inFlight = new Promise<void>((resolve) => {
+      resolveInFlight = resolve;
+    });
+    const postAbortResolveReceiver = new TelegramReceiver({
+      connectorName: "telegram",
+      botId: 42,
+      botUsername: "u",
+      apiClient: new TelegramApiClient({
+        botToken: SAMPLE_TOKEN,
+        fetchFn: vi.fn(async (_u, init) => {
+          resolveInFlight();
+          return await new Promise<Response>((resolve) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () =>
+                resolve(
+                  new Response(JSON.stringify({ ok: true, result: [] }), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              { once: true },
+            );
+          });
+        }),
+      }),
+    });
+    postAbortResolveReceiver.init({
+      allocateContextId: () => generator.generate("telegram"),
+      contextIdGenerator: generator,
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      onReceive: async () => ({ sessionId: "s" }),
+    });
+    await postAbortResolveReceiver.startPolling();
+    await inFlight;
+    await postAbortResolveReceiver.stopPolling();
+  });
 });
