@@ -128,7 +128,11 @@ export class TestDshHost {
         .map((part) => part.text)
         .join("\n");
 
-    const ensureLiveAgent = (sessionId: SessionId, cwd: string): Agent => {
+    const ensureLiveAgent = (
+      sessionId: SessionId,
+      cwd: string,
+      agentOptions?: CreateAgentOptions["agentOptions"],
+    ): Agent => {
       let liveSession = this.ctx.sessions.get(sessionId);
       if (liveSession === undefined) {
         const prepared = this.ctx.sessions.prepare(sessionId, { meta: { cwd } });
@@ -140,7 +144,7 @@ export class TestDshHost {
       const agent = {
         id: sessionId,
         session: liveSession,
-        options: {},
+        options: agentOptions ?? {},
         ctx: this.ctx,
         followup: (message: UserMessage) => {
           this.prompts.push({
@@ -171,7 +175,7 @@ export class TestDshHost {
       get: (id: SessionId) => this.liveAgents.get(id),
       create: async (opts: CreateAgentOptions) => {
         const cwd = opts.meta?.cwd ?? "/tmp/dsh-test";
-        const agent = ensureLiveAgent(opts.sessionId, cwd);
+        const agent = ensureLiveAgent(opts.sessionId, cwd, opts.agentOptions);
         return {
           agent,
           dispose: async () => {
@@ -184,7 +188,7 @@ export class TestDshHost {
         if (persisted === undefined) {
           throw new Error(`Cold session "${opts.resumeSessionId}" not found`);
         }
-        const agent = ensureLiveAgent(opts.resumeSessionId, persisted.cwd);
+        const agent = ensureLiveAgent(opts.resumeSessionId, persisted.cwd, opts.agentOptions);
         return {
           agent,
           dispose: async () => {
