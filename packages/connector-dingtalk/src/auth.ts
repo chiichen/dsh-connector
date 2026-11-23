@@ -46,10 +46,6 @@ function readHeaderValue(
   headers: Readonly<Record<string, string | readonly string[] | undefined>>,
   targetLowerName: string,
 ): string | undefined {
-  const direct = headers[targetLowerName];
-  if (typeof direct === "string") return direct.trim();
-  if (Array.isArray(direct) && typeof direct[0] === "string") return direct[0].trim();
-
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase() !== targetLowerName) continue;
     if (typeof value === "string") return value.trim();
@@ -226,7 +222,7 @@ export class DingTalkAccessTokenManager {
         appSecret: this.clientSecret,
       },
       timeoutMs: this.httpTimeoutMs,
-      ...(signal !== undefined ? { signal } : {}),
+      signal,
     });
 
     if (!result.ok) {

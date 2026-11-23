@@ -182,7 +182,7 @@ export function normalizeDingTalkSessionWebhook(rawUrl: string, connectorName?: 
     parsed = new URL(trimmed);
   } catch (cause) {
     throw new ConnectorValidationError("Invalid DingTalk sessionWebhook URL.", {
-      ...(connectorName !== undefined ? { connectorName } : {}),
+      connectorName,
       cause,
     });
   }
@@ -200,7 +200,7 @@ export function normalizeDingTalkSessionWebhook(rawUrl: string, connectorName?: 
   ) {
     throw new ConnectorValidationError(
       `Untrusted DingTalk sessionWebhook URL "${trimmed}": must be an HTTPS *.dingtalk.com endpoint.`,
-      connectorName !== undefined ? { connectorName } : undefined,
+      { connectorName },
     );
   }
 
@@ -223,7 +223,7 @@ export class SessionWebhookCache {
 
   constructor(options?: SessionWebhookCacheOptions) {
     this.now = options?.now ?? (() => Date.now());
-    this.maxEntries = options?.maxEntries ?? DINGTALK_MAX_CACHED_SESSION_WEBHOOKS;
+    this.maxEntries = Math.max(1, options?.maxEntries ?? DINGTALK_MAX_CACHED_SESSION_WEBHOOKS);
   }
 
   set(contextId: string, sessionWebhook: string, expiresAt: number): void {
@@ -239,8 +239,7 @@ export class SessionWebhookCache {
     this.entries.set(contextId, { sessionWebhook: normalized, expiresAt });
 
     while (this.entries.size > this.maxEntries) {
-      const oldestKey = this.entries.keys().next().value;
-      if (oldestKey === undefined) break;
+      const oldestKey = this.entries.keys().next().value as string;
       this.entries.delete(oldestKey);
     }
   }

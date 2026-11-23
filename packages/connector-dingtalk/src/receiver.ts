@@ -419,10 +419,8 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     }
 
     const verification = verifyDingTalkWebhookSignature(req.headers, {
-      ...(this.webhookSigningSecret !== undefined
-        ? { signingSecret: this.webhookSigningSecret }
-        : {}),
-      ...(this.outgoingToken !== undefined ? { outgoingToken: this.outgoingToken } : {}),
+      signingSecret: this.webhookSigningSecret,
+      outgoingToken: this.outgoingToken,
       maxSkewMs: this.maxWebhookSkewMs,
       nowMs: this.now(),
     });
@@ -959,26 +957,25 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     const senderCorpId = nonEmptyTrimmed(payload.senderCorpId);
     const robotCode = nonEmptyTrimmed(payload.robotCode);
 
+    const sessionWebhookExpiredTime = parseOptionalEpochMs(payload.sessionWebhookExpiredTime);
     const inboundMessage: DingTalkInboundMessage = {
       msgId,
       msgtype: nonEmptyTrimmed(payload.msgtype) ?? "text",
       text: normalizedText,
-      ...(cleanedQuotedText !== undefined ? { quotedText: cleanedQuotedText } : {}),
+      quotedText: cleanedQuotedText,
       conversationId,
       conversationType,
-      ...(conversationTitle !== undefined ? { conversationTitle } : {}),
+      conversationTitle,
       senderId,
-      ...(senderStaffId !== undefined ? { senderStaffId } : {}),
-      ...(senderNick !== undefined ? { senderNick } : {}),
-      ...(senderCorpId !== undefined ? { senderCorpId } : {}),
-      ...(chatbotUserId !== undefined ? { chatbotUserId } : {}),
-      ...(robotCode !== undefined ? { robotCode } : {}),
-      ...(typeof payload.isInAtList === "boolean" ? { isInAtList: payload.isInAtList } : {}),
-      ...(sessionWebhook !== undefined ? { sessionWebhook } : {}),
-      ...(parseOptionalEpochMs(payload.sessionWebhookExpiredTime) !== undefined
-        ? { sessionWebhookExpiredTime: parseOptionalEpochMs(payload.sessionWebhookExpiredTime) }
-        : {}),
-      ...(createAt !== undefined ? { createAt } : {}),
+      senderStaffId,
+      senderNick,
+      senderCorpId,
+      chatbotUserId,
+      robotCode,
+      isInAtList: typeof payload.isInAtList === "boolean" ? payload.isInAtList : undefined,
+      sessionWebhook,
+      sessionWebhookExpiredTime,
+      createAt,
     };
 
     const suggestedTitle =

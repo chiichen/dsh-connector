@@ -612,5 +612,93 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
       setTimeout(() => midAbort.abort(new Error("mid-flight cancel")), 2);
       await expect(midPromise).rejects.toThrow("mid-flight cancel");
     });
+
+    it("covers array headers, token signal bypass, markdown oToMessages, and webhook fallback without tokenManager", async () => {
+      const ts = "1700000000000";
+      const sig = computeDingTalkSignature(ts, "arr-sec");
+      expect(
+        verifyDingTalkWebhookSignature(
+          { timestamp: [ts], sign: [sig] },
+          { signingSecret: "arr-sec", nowMs: 1_700_000_000_000 },
+        ),
+      ).toEqual({ ok: true });
+      expect(
+        verifyDingTalkWebhookSignature(
+          { Token: ["tok-arr"], timestamp: ["bad"] },
+          { outgoingToken: "tok-arr" },
+        ),
+      ).toEqual({ ok: true });
+      expect(
+        verifyDingTalkWebhookSignature(
+          { Token: ["wrong"], timestamp: ["bad"] },
+          { outgoingToken: "tok-arr" },
+        ),
+      ).toEqual({ ok: false, reason: "invalid_token" });
+
+      const edgeTokenFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse({ accessToken: "sig-tok" })) // missing expireIn -> default 7200
+        .mockResolvedValueOnce(jsonResponse({}, 502)) // 502 without detail
+        .mockResolvedValueOnce(jsonResponse({ accessToken: "md-tok", expireIn: 7200 }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            processQueryKey: "pqk-md",
+            invalidStaffIdList: ["bad-u"],
+            flowControlledStaffIdList: ["fc-u"],
+          }),
+        );
+
+      const sigController = new AbortController();
+      const tm = new DingTalkAccessTokenManager({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+        fetchFn: edgeTokenFetch,
+      });
+      expect(await tm.getAccessToken(sigController.signal)).toBe("sig-tok");
+      tm.invalidate();
+      await expect(tm.getAccessToken(sigController.signal)).rejects.toBeInstanceOf(
+        ConnectorTransportError,
+      );
+
+      const mdSender = new DingTalkSender({
+        connectorName: "dingtalk",
+        robotCode: "cli",
+        tokenManager: tm,
+        fetchFn: edgeTokenFetch,
+      });
+      const mdRes = await mdSender.send(
+        createConnectorContext("dingtalk", "p2p:u-md"),
+        { text: "   \n   ", format: "markdown" }, // whitespace-only lines -> fallback title
+      );
+      expect(mdRes.data?.invalidStaffIdList).toEqual(["bad-u"]);
+      expect(mdRes.data?.flowControlledStaffIdList).toEqual(["fc-u"]);
+
+      // Fallback to cached sessionWebhook for p2p: and group: when preferSessionWebhook=false and tokenManager=undefined
+      const fbFetch = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async () => jsonResponse({ errcode: 0, errmsg: "ok" }));
+      const fbCache = new SessionWebhookCache({ now: () => 1_000 });
+      fbCache.set("p2p:u-fb", "https://oapi.dingtalk.com/robot/sendBySession?session=u", 20_000);
+      fbCache.set(
+        "group:cid-fb",
+        "https://oapi.dingtalk.com/robot/sendBySession?session=g",
+        20_000,
+      );
+      const fbSender = new DingTalkSender({
+        connectorName: "dingtalk",
+        webhookCache: fbCache,
+        preferSessionWebhook: false,
+        fetchFn: fbFetch,
+      });
+      expect(
+        (await fbSender.send(createConnectorContext("dingtalk", "p2p:u-fb"), { text: "hi u" }))
+          .channel,
+      ).toBe("sessionWebhook");
+      expect(
+        (await fbSender.send(createConnectorContext("dingtalk", "group:cid-fb"), { text: "hi g" }))
+          .channel,
+      ).toBe("sessionWebhook");
+    });
   });
 });

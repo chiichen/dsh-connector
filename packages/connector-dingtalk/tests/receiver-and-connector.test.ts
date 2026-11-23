@@ -16,6 +16,7 @@ import {
   computeDingTalkSignature,
   createDingTalkConnector,
   DingTalkConnector,
+  DingTalkReceiver,
   dingTalkReceiveSchema,
   type DingTalkCloseEventLike,
   type DingTalkInboundMessage,
@@ -867,6 +868,152 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
       expect(sockets[1]!.url).toContain("ticket=tk-ok-2");
 
       await recoveryConn.stop();
+    });
+
+    it("covers formatInbound variants, string timestamps, plain-text replies, in-flight drain, and outbound-only stop()", async () => {
+      const outboundOnly = createDingTalkConnector({ inboundMode: "none" });
+      await expect(outboundOnly.stop()).resolves.toBeUndefined();
+
+      let resolveSlowReceive: (() => void) | undefined;
+      const slowReceiveGate = new Promise<void>((resolve) => {
+        resolveSlowReceive = resolve;
+      });
+
+      const sockets: MockWebSocket[] = [];
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          jsonResponse({ endpoint: "wss://wss-open-connection.dingtalk.com", ticket: "tk-drain" }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ endpoint: "wss://wss-open-connection.dingtalk.com", ticket: "tk-never" }),
+        );
+
+      const rx = new DingTalkReceiver({
+        connectorName: "dingtalk",
+        clientId: "cli",
+        clientSecret: "sec",
+        outgoingToken: "tok-v",
+        localIp: "10.0.0.8",
+        streamSubscriptions: [{ type: "EVENT", topic: "*" }],
+        reconnectInitialDelayMs: 5_000,
+        fetchFn,
+        createWebSocket: (url) => {
+          const ws = new MockWebSocket(url);
+          sockets.push(ws);
+          queueMicrotask(() => ws.simulateOpen());
+          return ws;
+        },
+      });
+
+      const idGen = createDefaultContextIdGenerator();
+      const received: DingTalkInboundMessage[] = [];
+      rx.init({
+        contextIdGenerator: idGen,
+        allocateContextId: () => idGen.generate("dingtalk"),
+        onReceive: async (_ctx, params) => {
+          received.push(params);
+          if (params.msgId === "m-slow") {
+            await slowReceiveGate;
+          }
+          return { sessionId: "s-99" };
+        },
+        logger: { debug() {}, info() {}, warn() {}, error() {} },
+      });
+
+      // formatInbound group + P2P without senderNick
+      const groupPrompt = rx.formatInbound(
+        {
+          msgId: "m1",
+          msgtype: "text",
+          text: "Deploy ready",
+          conversationId: "cid-g",
+          conversationType: "2",
+          conversationTitle: "Release Room",
+          senderId: "u1",
+          senderStaffId: "staff-1",
+        },
+        createConnectorContext("dingtalk", "group:cid-g"),
+      );
+      expect(groupPrompt).toEqual({
+        title: "[DingTalk] Release Room",
+        text: "[Release Room] staff-1: Deploy ready",
+      });
+
+      const anonPrompt = rx.formatInbound(
+        {
+          msgId: "m2",
+          msgtype: "text",
+          text: "Ping",
+          conversationId: "cid-p",
+          conversationType: "1",
+          senderId: "u-anon",
+        },
+        createConnectorContext("dingtalk", "p2p-id:u-anon"),
+      );
+      expect(anonPrompt).toEqual({
+        title: "[DingTalk] u-anon",
+        text: "Ping",
+      });
+
+      // Plain string quoted reply + string epoch timestamp + unknown msgtype + malformed content JSON + non-array richText
+      for (const payload of [
+        {
+          msgId: "m-plain-q",
+          msgtype: "custom_unknown",
+          text: {
+            content: "Follow up",
+            isReplyMsg: true,
+            repliedMsg: { content: "Plain quoted line" },
+          },
+          createAt: "1700000009000",
+          conversationId: "cid-p",
+          conversationType: "1",
+          senderId: "u1",
+        },
+        {
+          msgId: "m-bad-content",
+          msgtype: "richText",
+          content: "{broken-json",
+          conversationId: "cid-p",
+          conversationType: "1",
+          senderId: "u1",
+        },
+      ]) {
+        const res = await rx.handleWebhook({
+          method: "POST",
+          pathname: "/webhooks/dingtalk",
+          subPath: "",
+          query: new URLSearchParams(),
+          headers: { token: "tok-v" },
+          rawBody: new TextEncoder().encode(JSON.stringify(payload)),
+        });
+        expect(res.status).toBe(200);
+      }
+      expect(received[0]?.quotedText).toBe("Plain quoted line");
+      expect(received[0]?.createAt).toBe(1_700_000_009_000);
+
+      // Start stream -> dispatch slow callback + trigger pending reconnect timer -> stopStream drains both cleanly
+      await rx.startStream();
+      await rx.startStream(); // idempotent when already running
+      sockets[0]!.simulateServerMessage({
+        type: "CALLBACK",
+        headers: { topic: "/v1.0/im/bot/messages/get", messageId: "cb-slow" },
+        data: JSON.stringify({
+          msgId: "m-slow",
+          msgtype: "text",
+          text: { content: "In flight" },
+          conversationId: "cid-p",
+          conversationType: "1",
+          senderId: "u1",
+        }),
+      });
+      sockets[0]!.simulateServerClose(1006, "drop-with-long-timer");
+
+      const stopPromise = rx.stopStream();
+      resolveSlowReceive?.();
+      await stopPromise;
+      expect(received.some((m) => m.msgId === "m-slow")).toBe(true);
     });
   });
 });

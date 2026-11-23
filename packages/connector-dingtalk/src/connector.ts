@@ -66,19 +66,17 @@ export class DingTalkConnector<
 
     this.inboundMode = options?.inboundMode ?? (hasAppCredentials ? "stream" : "webhook");
 
-    const webhookCache = new SessionWebhookCache(
-      options?.now !== undefined ? { now: options.now } : undefined,
-    );
+    const webhookCache = new SessionWebhookCache({ now: options?.now });
 
     const tokenManager = hasAppCredentials
       ? new DingTalkAccessTokenManager({
           connectorName: resolvedName,
           clientId,
           clientSecret,
-          ...(options?.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
-          ...(options?.httpTimeoutMs !== undefined ? { httpTimeoutMs: options.httpTimeoutMs } : {}),
-          ...(options?.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
-          ...(options?.now !== undefined ? { now: options.now } : {}),
+          apiBaseUrl: options?.apiBaseUrl,
+          httpTimeoutMs: options?.httpTimeoutMs,
+          fetchFn: options?.fetchFn,
+          now: options?.now,
         })
       : undefined;
 
@@ -86,18 +84,16 @@ export class DingTalkConnector<
 
     this.sender = new DingTalkSender<TName>({
       connectorName: resolvedName,
-      ...(robotCode !== undefined ? { robotCode } : {}),
-      ...(options?.coolAppCode !== undefined ? { coolAppCode: options.coolAppCode } : {}),
-      ...(tokenManager !== undefined ? { tokenManager } : {}),
+      robotCode,
+      coolAppCode: options?.coolAppCode,
+      tokenManager,
       webhookCache,
-      ...(options?.preferSessionWebhook !== undefined
-        ? { preferSessionWebhook: options.preferSessionWebhook }
-        : {}),
-      ...(options?.defaultFormat !== undefined ? { defaultFormat: options.defaultFormat } : {}),
-      ...(options?.contextMarker !== undefined ? { contextMarker: options.contextMarker } : {}),
-      ...(options?.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
-      ...(options?.httpTimeoutMs !== undefined ? { httpTimeoutMs: options.httpTimeoutMs } : {}),
-      ...(options?.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
+      preferSessionWebhook: options?.preferSessionWebhook,
+      defaultFormat: options?.defaultFormat,
+      contextMarker: options?.contextMarker,
+      apiBaseUrl: options?.apiBaseUrl,
+      httpTimeoutMs: options?.httpTimeoutMs,
+      fetchFn: options?.fetchFn,
     });
 
     this.receiver =
@@ -105,52 +101,28 @@ export class DingTalkConnector<
         ? undefined
         : new DingTalkReceiver<TName>({
             connectorName: resolvedName,
-            ...(clientId !== undefined ? { clientId } : {}),
-            ...(clientSecret !== undefined ? { clientSecret } : {}),
-            ...(options?.webhookSigningSecret !== undefined
-              ? { webhookSigningSecret: options.webhookSigningSecret }
-              : {}),
-            ...(options?.outgoingToken !== undefined
-              ? { outgoingToken: options.outgoingToken }
-              : {}),
-            ...(options?.maxWebhookSkewMs !== undefined
-              ? { maxWebhookSkewMs: options.maxWebhookSkewMs }
-              : {}),
+            clientId,
+            clientSecret,
+            webhookSigningSecret: options?.webhookSigningSecret,
+            outgoingToken: options?.outgoingToken,
+            maxWebhookSkewMs: options?.maxWebhookSkewMs,
             webhookCache,
-            ...(options?.botUserIds !== undefined ? { botUserIds: options.botUserIds } : {}),
-            ...(options?.botStaffIds !== undefined ? { botStaffIds: options.botStaffIds } : {}),
-            ...(options?.requireAtInGroup !== undefined
-              ? { requireAtInGroup: options.requireAtInGroup }
-              : {}),
-            ...(options?.streamSubscriptions !== undefined
-              ? { streamSubscriptions: options.streamSubscriptions }
-              : {}),
-            ...(options?.streamUserAgent !== undefined
-              ? { streamUserAgent: options.streamUserAgent }
-              : {}),
-            ...(options?.localIp !== undefined ? { localIp: options.localIp } : {}),
-            ...(options?.reconnectInitialDelayMs !== undefined
-              ? { reconnectInitialDelayMs: options.reconnectInitialDelayMs }
-              : {}),
-            ...(options?.reconnectMaxDelayMs !== undefined
-              ? { reconnectMaxDelayMs: options.reconnectMaxDelayMs }
-              : {}),
-            ...(options?.autoReconnect !== undefined
-              ? { autoReconnect: options.autoReconnect }
-              : {}),
-            ...(options?.apiBaseUrl !== undefined ? { apiBaseUrl: options.apiBaseUrl } : {}),
-            ...(options?.httpTimeoutMs !== undefined
-              ? { httpTimeoutMs: options.httpTimeoutMs }
-              : {}),
-            ...(options?.wsHandshakeTimeoutMs !== undefined
-              ? { wsHandshakeTimeoutMs: options.wsHandshakeTimeoutMs }
-              : {}),
-            ...(options?.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
-            ...(options?.createWebSocket !== undefined
-              ? { createWebSocket: options.createWebSocket }
-              : {}),
-            ...(options?.now !== undefined ? { now: options.now } : {}),
-            ...(options?.logger !== undefined ? { logger: options.logger } : {}),
+            botUserIds: options?.botUserIds,
+            botStaffIds: options?.botStaffIds,
+            requireAtInGroup: options?.requireAtInGroup,
+            streamSubscriptions: options?.streamSubscriptions,
+            streamUserAgent: options?.streamUserAgent,
+            localIp: options?.localIp,
+            reconnectInitialDelayMs: options?.reconnectInitialDelayMs,
+            reconnectMaxDelayMs: options?.reconnectMaxDelayMs,
+            autoReconnect: options?.autoReconnect,
+            apiBaseUrl: options?.apiBaseUrl,
+            httpTimeoutMs: options?.httpTimeoutMs,
+            wsHandshakeTimeoutMs: options?.wsHandshakeTimeoutMs,
+            fetchFn: options?.fetchFn,
+            createWebSocket: options?.createWebSocket,
+            now: options?.now,
+            logger: options?.logger,
           });
 
     this.streamingOptions = options?.streaming;

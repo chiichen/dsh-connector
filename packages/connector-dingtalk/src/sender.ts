@@ -70,6 +70,26 @@ function deriveMarkdownTitle(text: string, explicitTitle?: string): string {
   return DINGTALK_DEFAULT_MARKDOWN_TITLE;
 }
 
+function buildOpenApiMessagePayload(
+  wireText: string,
+  format: "text" | "markdown",
+  explicitTitle?: string,
+): { readonly msgKey: string; readonly msgParam: string } {
+  if (format === "markdown") {
+    return {
+      msgKey: DINGTALK_MSG_KEY_MARKDOWN,
+      msgParam: JSON.stringify({
+        title: deriveMarkdownTitle(wireText, explicitTitle),
+        text: wireText,
+      }),
+    };
+  }
+  return {
+    msgKey: DINGTALK_MSG_KEY_TEXT,
+    msgParam: JSON.stringify({ content: wireText }),
+  };
+}
+
 function deduplicateUserIds(userIds: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -324,7 +344,7 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
       headers,
       body,
       timeoutMs: this.httpTimeoutMs,
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
 
     if (!result.ok) {
@@ -370,14 +390,7 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
     explicitTitle: string | undefined,
     options?: ConnectorSendOptions,
   ): Promise<DingTalkSendResult> {
-    const msgKey = format === "markdown" ? DINGTALK_MSG_KEY_MARKDOWN : DINGTALK_MSG_KEY_TEXT;
-    const msgParam =
-      format === "markdown"
-        ? JSON.stringify({
-            title: deriveMarkdownTitle(wireText, explicitTitle),
-            text: wireText,
-          })
-        : JSON.stringify({ content: wireText });
+    const { msgKey, msgParam } = buildOpenApiMessagePayload(wireText, format, explicitTitle);
 
     const data = await this.postAuthenticatedOpenApi(
       `${this.apiBaseUrl}${DINGTALK_OTO_BATCH_SEND_PATH}`,
@@ -396,9 +409,8 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
         : undefined;
 
     return {
-      ...(processQueryKey !== undefined
-        ? { externalId: processQueryKey, messageId: processQueryKey }
-        : {}),
+      externalId: processQueryKey,
+      messageId: processQueryKey,
       channel: "oToMessages",
       target,
       raw: data,
@@ -425,14 +437,7 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
     explicitTitle: string | undefined,
     options?: ConnectorSendOptions,
   ): Promise<DingTalkSendResult> {
-    const msgKey = format === "markdown" ? DINGTALK_MSG_KEY_MARKDOWN : DINGTALK_MSG_KEY_TEXT;
-    const msgParam =
-      format === "markdown"
-        ? JSON.stringify({
-            title: deriveMarkdownTitle(wireText, explicitTitle),
-            text: wireText,
-          })
-        : JSON.stringify({ content: wireText });
+    const { msgKey, msgParam } = buildOpenApiMessagePayload(wireText, format, explicitTitle);
 
     const data = await this.postAuthenticatedOpenApi(
       `${this.apiBaseUrl}${DINGTALK_GROUP_MESSAGE_SEND_PATH}`,
@@ -452,9 +457,8 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
         : undefined;
 
     return {
-      ...(processQueryKey !== undefined
-        ? { externalId: processQueryKey, messageId: processQueryKey }
-        : {}),
+      externalId: processQueryKey,
+      messageId: processQueryKey,
       channel: "groupMessages",
       target,
       raw: data,
@@ -480,9 +484,9 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
       );
     }
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const token = await this.tokenManager.getAccessToken(signal);
-      const result = await requestDingTalkJson({
+    const executeRequest = async (): Promise<Awaited<ReturnType<typeof requestDingTalkJson>>> => {
+      const token = await this.tokenManager!.getAccessToken(signal);
+      return requestDingTalkJson({
         connectorName: this.connectorName,
         fetchFn: this.fetchFn,
         url,
@@ -492,38 +496,35 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
         },
         body,
         timeoutMs: this.httpTimeoutMs,
-        ...(signal !== undefined ? { signal } : {}),
+        signal,
       });
+    };
 
-      if (result.ok) {
-        return result.data;
-      }
+    let result = await executeRequest();
+    if (!result.ok && result.status === HTTP_STATUS_UNAUTHORIZED) {
+      this.tokenManager.invalidate();
+      result = await executeRequest();
+    }
 
-      if (result.status === HTTP_STATUS_UNAUTHORIZED && attempt === 0) {
-        this.tokenManager.invalidate();
-        continue;
-      }
+    if (result.ok) {
+      return result.data;
+    }
 
-      const detail = extractProviderErrorDetail(result.data);
-      if (result.status === HTTP_STATUS_UNAUTHORIZED || result.status === HTTP_STATUS_FORBIDDEN) {
-        throw new ConnectorAuthError(
-          `DingTalk OpenAPI authentication/permission rejected (HTTP ${result.status}${detail !== undefined ? ` - ${detail}` : ""}).`,
-          { connectorName: this.connectorName },
-        );
-      }
-
-      throw new ConnectorTransportError(
-        `DingTalk OpenAPI request failed (HTTP ${result.status}${detail !== undefined ? ` - ${detail}` : ""}).`,
-        {
-          connectorName: this.connectorName,
-          statusCode: result.status,
-          retryable: isRetryableHttpStatus(result.status),
-        },
+    const detail = extractProviderErrorDetail(result.data);
+    if (result.status === HTTP_STATUS_UNAUTHORIZED || result.status === HTTP_STATUS_FORBIDDEN) {
+      throw new ConnectorAuthError(
+        `DingTalk OpenAPI authentication/permission rejected (HTTP ${result.status}${detail !== undefined ? ` - ${detail}` : ""}).`,
+        { connectorName: this.connectorName },
       );
     }
 
-    throw new ConnectorAuthError("DingTalk OpenAPI authentication failed after token refresh.", {
-      connectorName: this.connectorName,
-    });
+    throw new ConnectorTransportError(
+      `DingTalk OpenAPI request failed (HTTP ${result.status}${detail !== undefined ? ` - ${detail}` : ""}).`,
+      {
+        connectorName: this.connectorName,
+        statusCode: result.status,
+        retryable: isRetryableHttpStatus(result.status),
+      },
+    );
   }
 }
