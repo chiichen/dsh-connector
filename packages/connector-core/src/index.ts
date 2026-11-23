@@ -14,11 +14,18 @@ export {
 export {
   assertNonEmptyContextId,
   assertValidConnectorName,
+  BRACKET_CONTEXT_PREFIX,
+  BRACKET_CONTEXT_SUFFIX,
+  CONNECTOR_CONTEXT_SEPARATOR,
   createConnectorContext,
   createDefaultContextIdGenerator,
   extractContextMarker,
+  HTML_COMMENT_CONTEXT_PREFIX,
+  HTML_COMMENT_CONTEXT_SUFFIX,
   isNonEmptyContextId,
   isValidConnectorName,
+  MAX_CONNECTOR_NAME_LEN,
+  MIN_CONNECTOR_NAME_LEN,
   prependContextMarker,
 } from "./context";
 

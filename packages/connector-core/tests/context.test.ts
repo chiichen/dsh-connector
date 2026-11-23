@@ -2,11 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   assertNonEmptyContextId,
   assertValidConnectorName,
+  BRACKET_CONTEXT_PREFIX,
+  BRACKET_CONTEXT_SUFFIX,
+  CONNECTOR_CONTEXT_SEPARATOR,
   createConnectorContext,
   createDefaultContextIdGenerator,
   extractContextMarker,
+  HTML_COMMENT_CONTEXT_PREFIX,
+  HTML_COMMENT_CONTEXT_SUFFIX,
   isNonEmptyContextId,
   isValidConnectorName,
+  MAX_CONNECTOR_NAME_LEN,
+  MIN_CONNECTOR_NAME_LEN,
   prependContextMarker,
   ConnectorValidationError,
   type Connector,
@@ -14,6 +21,16 @@ import {
 } from "../src";
 
 describe("ConnectorName validation", () => {
+  it("exports shared protocol constants for delimiter, name bounds, and context markers", () => {
+    expect(CONNECTOR_CONTEXT_SEPARATOR).toBe("--");
+    expect(MIN_CONNECTOR_NAME_LEN).toBe(2);
+    expect(MAX_CONNECTOR_NAME_LEN).toBe(32);
+    expect(HTML_COMMENT_CONTEXT_PREFIX).toBe("<!-- dsh-ctx:");
+    expect(HTML_COMMENT_CONTEXT_SUFFIX).toBe(" -->");
+    expect(BRACKET_CONTEXT_PREFIX).toBe("[#ctx:");
+    expect(BRACKET_CONTEXT_SUFFIX).toBe("]");
+  });
+
   it("accepts valid lowercase single-hyphen names", () => {
     for (const valid of ["tapd", "github", "wecom", "gongfeng-git", "tapd-v2", "a1-b2-c3"]) {
       expect(isValidConnectorName(valid)).toBe(true);
