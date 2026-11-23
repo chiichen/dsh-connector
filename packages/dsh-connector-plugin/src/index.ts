@@ -1,3 +1,10 @@
+import type { Context } from "@deepseek-ai/cordis";
+import Schema from "@deepseek-ai/schemastery";
+import type {} from "@deepseek-ai/dsh-agent";
+import type {} from "@deepseek-ai/dsh-host-webserver";
+import type {} from "@deepseek-ai/dsh-session";
+import type {} from "@deepseek-ai/dsh-storage-domain";
+import type {} from "@deepseek-ai/dsh-tools";
 import {
   CONNECTOR_CORE_VERSION,
   type Connector,
@@ -5,43 +12,42 @@ import {
   type ConnectorLogger,
 } from "@dsh-connector/core";
 import {
+  CONNECTOR_PLUGIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_VERSION,
+  CONNECTOR_STORAGE_TABLE_NAME,
+  DEFAULT_DEDUPLICATION_MAX_ENTRIES,
+  DEFAULT_DEDUPLICATION_TTL_MS,
+  DEFAULT_TOOL_NAME_PREFIX,
+  DEFAULT_WEBHOOK_BASE_PATH,
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+} from "./constants";
+import {
+  CONNECTOR_CONTEXT_DOMAIN,
   DefaultContextSessionStore,
-  DshStorageDomainAdapter,
-  InMemoryContextStorageAdapter,
-  JsonFileContextStorageAdapter,
   parseContextHashKey,
+  persistedContextRecordSchema,
   toContextHashKey,
+  type ConnectorContextDomain,
   type ConnectorContextHashKey,
+  type ConnectorContextKvTable,
   type ContextSessionStore,
-  type ContextStorageAdapter,
-  type DshKvTableLike,
   type PersistedContextRecord,
 } from "./context-store";
-import type { DshCordisContextLike, DshOpenedDomainLike } from "./dsh-types";
 import { ConnectorManager } from "./manager";
 import { DshSessionDriver } from "./session-driver";
 import { registerConnectorTools } from "./tool-bridge";
-import {
-  createStandaloneWebhookServer,
-  mountConnectorWebhooks,
-  type StandaloneWebhookServerHandle,
-} from "./webhook-router";
+import { mountConnectorWebhooks } from "./webhook-router";
 
 export const DSH_CONNECTOR_PLUGIN_VERSION: string = CONNECTOR_CORE_VERSION;
 
-export const name = "dsh-connector-plugin" as const;
-export const inject = ["agents", "sessions", "tools"] as const;
-
-const DEFAULT_STORAGE_TABLE = "connector_contexts";
+export const name = CONNECTOR_PLUGIN_NAME;
+export const inject = ["agents", "sessions", "tools", "storageDomain"] as const;
 
 export interface ConnectorPluginWebhookConfig {
   readonly enabled?: boolean;
   readonly basePath?: string;
   readonly maxBodyBytes?: number;
-  readonly standalone?: {
-    readonly host?: string;
-    readonly port: number;
-  };
 }
 
 export interface ConnectorPluginDeduplicationConfig {
@@ -52,10 +58,6 @@ export interface ConnectorPluginDeduplicationConfig {
 export interface ConnectorPluginConfig {
   readonly connectors?: readonly Connector[];
   readonly contextStore?: ContextSessionStore;
-  readonly storageAdapter?: ContextStorageAdapter;
-  readonly storageFilePath?: string;
-  readonly storageDomainSpec?: unknown;
-  readonly storageTableName?: string;
   readonly defaultSessionCwd?: string;
   readonly workspaceId?: string;
   readonly contextIdGenerator?: ConnectorContextIdGenerator;
@@ -65,10 +67,24 @@ export interface ConnectorPluginConfig {
   readonly logger?: ConnectorLogger;
 }
 
+export const Config: Schema<ConnectorPluginConfig> = Schema.object({
+  defaultSessionCwd: Schema.string(),
+  workspaceId: Schema.string(),
+  toolNamePrefix: Schema.string().default(DEFAULT_TOOL_NAME_PREFIX),
+  webhook: Schema.object({
+    enabled: Schema.boolean().default(true),
+    basePath: Schema.string().default(DEFAULT_WEBHOOK_BASE_PATH),
+    maxBodyBytes: Schema.number().step(1).min(1).default(DEFAULT_WEBHOOK_MAX_BODY_BYTES),
+  }),
+  deduplication: Schema.object({
+    ttlMs: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_TTL_MS),
+    maxEntries: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_MAX_ENTRIES),
+  }),
+}) as unknown as Schema<ConnectorPluginConfig>;
+
 export interface ConnectorPluginRuntime {
   readonly manager: ConnectorManager;
   readonly contextStore: ContextSessionStore;
-  readonly standaloneWebhookPort?: number;
   dispose(): Promise<void>;
 }
 
@@ -76,61 +92,58 @@ export interface ConnectorCordisPlugin {
   readonly name: typeof name;
   readonly inject: typeof inject;
   apply(
-    ctx: DshCordisContextLike,
+    ctx: Context,
     overrideConfig?: Partial<ConnectorPluginConfig>,
   ): Promise<ConnectorPluginRuntime>;
 }
 
 async function resolveContextStore(
-  ctx: DshCordisContextLike,
+  ctx: Context,
   config: ConnectorPluginConfig,
 ): Promise<{
-  store: ContextSessionStore;
-  openedDomain?: DshOpenedDomainLike;
+  readonly store: ContextSessionStore;
+  readonly openedDomain?: ConnectorContextDomain;
 }> {
   if (config.contextStore !== undefined) {
     return { store: config.contextStore };
   }
-  if (config.storageAdapter !== undefined) {
-    return { store: await DefaultContextSessionStore.open(config.storageAdapter) };
-  }
-  if (config.storageFilePath !== undefined) {
-    const fileAdapter = new JsonFileContextStorageAdapter(config.storageFilePath);
-    return { store: await DefaultContextSessionStore.open(fileAdapter) };
-  }
-  const storageDomain = ctx.get("storageDomain");
-  if (storageDomain !== undefined) {
-    const openedDomain = await storageDomain.open(config.storageDomainSpec ?? { id: name });
-    try {
-      const table = openedDomain.table(config.storageTableName ?? DEFAULT_STORAGE_TABLE);
-      const store = await DefaultContextSessionStore.open(new DshStorageDomainAdapter(table));
-      return { store, openedDomain };
-    } catch (error) {
-      await openedDomain.close();
-      throw error;
-    }
-  }
-  return {
-    store: await DefaultContextSessionStore.open(new InMemoryContextStorageAdapter()),
-  };
+  const { store, domain } = await DefaultContextSessionStore.open(ctx.storageDomain);
+  return { store, openedDomain: domain };
 }
 
-function adaptCordisLogger(
-  ctx: DshCordisContextLike,
-  explicit?: ConnectorLogger,
-): ConnectorLogger | undefined {
+function adaptCordisLogger(ctx: Context, explicit?: ConnectorLogger): ConnectorLogger {
   if (explicit !== undefined) return explicit;
-  if (ctx.logger === undefined) return undefined;
+  const cordisLogger = ctx.logger(CONNECTOR_PLUGIN_NAME);
   return {
-    debug: (msg, meta) => ctx.logger?.debug?.(msg, meta),
-    info: (msg, meta) => ctx.logger?.info?.(msg, meta),
-    warn: (msg, meta) => ctx.logger?.warn?.(msg, meta),
-    error: (msg, meta) => ctx.logger?.error?.(msg, meta),
+    debug: (msg, meta) => {
+      cordisLogger.debug(
+        meta !== undefined ? `${msg} %o` : msg,
+        ...(meta !== undefined ? [meta] : []),
+      );
+    },
+    info: (msg, meta) => {
+      cordisLogger.info(
+        meta !== undefined ? `${msg} %o` : msg,
+        ...(meta !== undefined ? [meta] : []),
+      );
+    },
+    warn: (msg, meta) => {
+      cordisLogger.warn(
+        meta !== undefined ? `${msg} %o` : msg,
+        ...(meta !== undefined ? [meta] : []),
+      );
+    },
+    error: (msg, meta) => {
+      cordisLogger.error(
+        meta !== undefined ? `${msg} %o` : msg,
+        ...(meta !== undefined ? [meta] : []),
+      );
+    },
   };
 }
 
 export async function mountConnectorPlugin(
-  ctx: DshCordisContextLike,
+  ctx: Context,
   config: ConnectorPluginConfig = {},
 ): Promise<ConnectorPluginRuntime> {
   const { store: contextStore, openedDomain } = await resolveContextStore(ctx, config);
@@ -154,24 +167,21 @@ export async function mountConnectorPlugin(
     ...(config.deduplication?.maxEntries !== undefined
       ? { deduplicationMaxEntries: config.deduplication.maxEntries }
       : {}),
-    ...(logger !== undefined ? { logger } : {}),
+    logger,
   });
 
   let disposeTools: (() => void) | undefined;
-  let disposeWebServerRoute: (() => void) | undefined;
-  let standaloneServer: StandaloneWebhookServerHandle | undefined;
+  let disposeWebServerInjector: (() => Promise<void>) | undefined;
   let disposed = false;
 
   const dispose = async (): Promise<void> => {
     if (disposed) return;
     disposed = true;
 
-    if (standaloneServer !== undefined) {
-      await standaloneServer.close();
-      standaloneServer = undefined;
+    if (disposeWebServerInjector !== undefined) {
+      await disposeWebServerInjector();
+      disposeWebServerInjector = undefined;
     }
-    disposeWebServerRoute?.();
-    disposeWebServerRoute = undefined;
 
     disposeTools?.();
     disposeTools = undefined;
@@ -199,23 +209,14 @@ export async function mountConnectorPlugin(
         ...(config.webhook?.maxBodyBytes !== undefined
           ? { maxBodyBytes: config.webhook.maxBodyBytes }
           : {}),
-        ...(logger !== undefined ? { logger } : {}),
+        logger,
       };
 
-      const webServer = ctx.get("webServer");
-      if (webServer !== undefined) {
-        disposeWebServerRoute = mountConnectorWebhooks(webServer, manager, routerOptions);
-      }
-
-      if (config.webhook?.standalone !== undefined) {
-        standaloneServer = await createStandaloneWebhookServer(manager, {
-          ...routerOptions,
-          ...(config.webhook.standalone.host !== undefined
-            ? { host: config.webhook.standalone.host }
-            : {}),
-          port: config.webhook.standalone.port,
-        });
-      }
+      // Reuse DSH's built-in @deepseek-ai/dsh-host-webserver (`ctx.webServer`) whenever active.
+      const webFiber = ctx.inject(["webServer"], (webCtx) => {
+        webCtx.effect(() => mountConnectorWebhooks(webCtx.webServer, manager, routerOptions));
+      });
+      disposeWebServerInjector = webFiber.dispose;
     }
   } catch (error) {
     await dispose();
@@ -225,13 +226,12 @@ export async function mountConnectorPlugin(
   return {
     manager,
     contextStore,
-    ...(standaloneServer !== undefined ? { standaloneWebhookPort: standaloneServer.port } : {}),
     dispose,
   };
 }
 
 export async function apply(
-  ctx: DshCordisContextLike,
+  ctx: Context,
   config: ConnectorPluginConfig = {},
 ): Promise<ConnectorPluginRuntime> {
   const state: { disposed: boolean; runtime?: ConnectorPluginRuntime } = { disposed: false };
@@ -271,37 +271,28 @@ export function createConnectorPlugin(defaultConfig: ConnectorPluginConfig): Con
 }
 
 export {
+  CONNECTOR_PLUGIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_VERSION,
+  CONNECTOR_STORAGE_TABLE_NAME,
+  DEFAULT_DEDUPLICATION_MAX_ENTRIES,
+  DEFAULT_DEDUPLICATION_TTL_MS,
+  DEFAULT_TOOL_NAME_PREFIX,
+  DEFAULT_WEBHOOK_BASE_PATH,
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+};
+export {
+  CONNECTOR_CONTEXT_DOMAIN,
   DefaultContextSessionStore,
-  DshStorageDomainAdapter,
-  InMemoryContextStorageAdapter,
-  JsonFileContextStorageAdapter,
   parseContextHashKey,
+  persistedContextRecordSchema,
   toContextHashKey,
+  type ConnectorContextDomain,
   type ConnectorContextHashKey,
+  type ConnectorContextKvTable,
   type ContextSessionStore,
-  type ContextStorageAdapter,
-  type DshKvTableLike,
   type PersistedContextRecord,
 };
-export type {
-  DshAgentDefaultModelLike,
-  DshAgentLike,
-  DshAgentsServiceLike,
-  DshCordisContextLike,
-  DshOpenedDomainLike,
-  DshOptionalServicesMap,
-  DshSessionControllerLike,
-  DshSessionPersistenceLike,
-  DshSessionsServiceLike,
-  DshSessionTitleLike,
-  DshStorageDomainLike,
-  DshTextPartLike,
-  DshToolDefinitionLike,
-  DshToolRunContextLike,
-  DshToolsServiceLike,
-  DshWebServerLike,
-  DshWebServerRouteLike,
-} from "./dsh-types";
 export {
   ConnectorManager,
   type ConnectorManagerOptions,
@@ -320,11 +311,8 @@ export {
   type ToolBridgeOptions,
 } from "./tool-bridge";
 export {
-  createStandaloneWebhookServer,
   createWebhookHttpHandler,
   mountConnectorWebhooks,
-  type StandaloneWebhookServerHandle,
-  type StandaloneWebhookServerOptions,
   type WebhookRouterOptions,
 } from "./webhook-router";
 export { zodToDshJsonSchema } from "./zod-json-schema";

@@ -1,5 +1,19 @@
 import { randomUUID } from "node:crypto";
-import type { DshCordisContextLike } from "./dsh-types";
+import type { Context } from "@deepseek-ai/cordis";
+import type { AgentOptions } from "@deepseek-ai/dsh-agent";
+import type {} from "@deepseek-ai/dsh-agent-default-model";
+import type {
+  SessionCreateRequest,
+  SessionRequestId,
+} from "@deepseek-ai/dsh-api-session-controller";
+import { brandString } from "@deepseek-ai/dsh-brand";
+import { createUserMessage, type ReasoningEffortId } from "@deepseek-ai/dsh-llm";
+import { SessionId } from "@deepseek-ai/dsh-session";
+import type {} from "@deepseek-ai/dsh-session-persistence";
+import type {} from "@deepseek-ai/dsh-session-title";
+
+const SESSION_ID_PREFIX = "session-" as const;
+const USER_MESSAGE_SOURCE_KIND = "user" as const;
 
 export interface DshSessionDriverOptions {
   readonly defaultCwd?: string;
@@ -17,7 +31,7 @@ export class DshSessionDriver implements SessionDriver {
   private readonly workspaceId: string | undefined;
 
   constructor(
-    private readonly ctx: DshCordisContextLike,
+    private readonly ctx: Context,
     options?: DshSessionDriverOptions,
   ) {
     this.defaultCwd = options?.defaultCwd ?? process.cwd();
@@ -25,36 +39,38 @@ export class DshSessionDriver implements SessionDriver {
   }
 
   async exists(sessionId: string): Promise<boolean> {
-    if (this.ctx.agents.get(sessionId) !== undefined) {
+    const id = SessionId(sessionId);
+    if (this.ctx.agents.get(id) !== undefined) {
       return true;
     }
-    if (this.ctx.sessions.get(sessionId) !== undefined) {
+    if (this.ctx.sessions.get(id) !== undefined) {
       return true;
     }
     const persistence = this.ctx.get("sessionPersistence");
     if (persistence !== undefined) {
-      const stat = await persistence.stat(sessionId);
-      return stat !== undefined && stat !== null;
+      const stat = await persistence.stat(id);
+      return stat !== undefined;
     }
     return false;
   }
 
   async createSession(options?: { readonly suggestedTitle?: string }): Promise<string> {
     const controller = this.ctx.get("sessionController");
-    let sessionId: string;
+    let sessionId: SessionId;
 
     if (controller !== undefined) {
-      const created = await controller.create({
-        cwd: this.defaultCwd,
-        ...(this.workspaceId !== undefined ? { workspaceId: this.workspaceId } : {}),
-      });
-      const resolvedId = created.sessionId ?? created.agent?.id;
-      if (resolvedId === undefined || resolvedId.length === 0) {
-        throw new Error("DSH sessionController.create returned an empty session identity.");
-      }
-      sessionId = resolvedId;
+      const createReq: SessionCreateRequest =
+        this.workspaceId !== undefined
+          ? {
+              workspaceId: brandString<NonNullable<SessionCreateRequest["workspaceId"]>>(
+                this.workspaceId,
+              ),
+            }
+          : { cwd: this.defaultCwd };
+      const created = await controller.create(createReq);
+      sessionId = created.sessionId;
     } else {
-      sessionId = `session-${randomUUID()}`;
+      sessionId = SessionId(`${SESSION_ID_PREFIX}${randomUUID()}`);
       const agentOptions = this.resolveAgentOptions();
       await this.ctx.agents.create({
         sessionId,
@@ -63,50 +79,62 @@ export class DshSessionDriver implements SessionDriver {
       });
     }
 
-    if (options?.suggestedTitle !== undefined && options.suggestedTitle.trim().length > 0) {
-      const titleService = this.ctx.get("sessionTitle");
-      await titleService?.setTitle?.(sessionId, options.suggestedTitle);
+    const rawTitle = options?.suggestedTitle?.trim();
+    if (rawTitle !== undefined && rawTitle.length > 0) {
+      if (controller !== undefined) {
+        await controller.rename({ sessionId, title: rawTitle });
+      } else {
+        const titleService = this.ctx.get("sessionTitle");
+        const liveSession = this.ctx.sessions.get(sessionId);
+        if (titleService !== undefined && liveSession !== undefined) {
+          titleService.rename(liveSession, rawTitle);
+        }
+      }
     }
 
     return sessionId;
   }
 
   async prompt(sessionId: string, text: string, mode: "queue" | "steer" = "queue"): Promise<void> {
+    const id = SessionId(sessionId);
     const controller = this.ctx.get("sessionController");
     if (controller !== undefined) {
-      await controller.prompt({
-        requestId: randomUUID(),
-        sessionId,
-        mode,
-        content: [{ type: "text", text }],
-      });
+      const abortController = new AbortController();
+      await controller.prompt(
+        {
+          requestId: brandString<SessionRequestId>(randomUUID()),
+          sessionId: id,
+          mode,
+          content: [{ type: "text", text }],
+        },
+        abortController.signal,
+      );
       return;
     }
 
-    let agent = this.ctx.agents.get(sessionId);
+    let agent = this.ctx.agents.get(id);
     if (agent === undefined) {
       const agentOptions = this.resolveAgentOptions();
       const resumed = await this.ctx.agents.resume({
-        resumeSessionId: sessionId,
+        resumeSessionId: id,
         ...(agentOptions !== undefined ? { agentOptions } : {}),
       });
       agent = resumed.agent;
     }
 
-    if (mode === "steer" && agent.steer !== undefined) {
-      await agent.steer(text);
-      return;
-    }
+    const message = createUserMessage({
+      content: [{ type: "text", text }],
+      source: { kind: USER_MESSAGE_SOURCE_KIND },
+    });
 
-    if (agent.followup !== undefined) {
-      await agent.followup(text);
-      return;
+    if (mode === "steer") {
+      agent.steer(message);
+    } else {
+      agent.followup(message);
     }
-
-    throw new Error(`DSH Agent "${sessionId}" exposes neither followup() nor steer().`);
   }
 
-  private resolveAgentOptions(): Record<string, unknown> | undefined {
+  private resolveAgentOptions(): AgentOptions | undefined {
     const defaultModel = this.ctx.get("agentDefaultModel");
     if (defaultModel === undefined) {
       return undefined;
@@ -119,7 +147,8 @@ export class DshSessionDriver implements SessionDriver {
         return defaultModel.currentSelection().model;
       },
       get reasoningEffort() {
-        return defaultModel.currentSelection().reasoningEffort;
+        const effort = defaultModel.currentSelection().reasoningEffort;
+        return effort !== undefined ? brandString<ReasoningEffortId>(effort) : undefined;
       },
     };
   }

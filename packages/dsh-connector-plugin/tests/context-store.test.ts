@@ -3,19 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  CONNECTOR_CONTEXT_SEPARATOR,
   ConnectorValidationError,
   createConnectorContext,
   createDefaultContextIdGenerator,
   type Connector,
-  type ConnectorContextId,
 } from "@dsh-connector/core";
 import {
+  CONNECTOR_CONTEXT_DOMAIN,
   DefaultContextSessionStore,
-  DshStorageDomainAdapter,
-  JsonFileContextStorageAdapter,
   parseContextHashKey,
   toContextHashKey,
 } from "../src/context-store";
+import { TestDshHost } from "./mocks/mock-dsh-host";
 
 const tapdConnector: Connector<"tapd"> = {
   name: "tapd",
@@ -34,10 +34,10 @@ const wecomConnector: Connector<"wecom"> = {
 };
 
 describe("ConnectorContextHashKey codec", () => {
-  it("formats and parses ${connector_name}--${context_id} losslessly even when contextId contains --", () => {
+  it("formats and parses ${connector_name}--${context_id} using CONNECTOR_CONTEXT_SEPARATOR", () => {
     const ctx = createConnectorContext(tapdConnector, "2001--story--10086");
     const hashKey = toContextHashKey(ctx);
-    expect(hashKey).toBe("tapd--2001--story--10086");
+    expect(hashKey).toBe(`tapd${CONNECTOR_CONTEXT_SEPARATOR}2001--story--10086`);
 
     const parsed = parseContextHashKey(hashKey);
     expect(parsed).toEqual({
@@ -82,13 +82,9 @@ describe("DefaultContextSessionStore", () => {
     const ctx43 = createConnectorContext(githubConnector, "org/repo#43");
 
     await store.bind("session-1", ctx42);
-    // Idempotent re-bind of identical context succeeds
     await expect(store.bind("session-1", ctx42)).resolves.toBeUndefined();
 
-    // Binding a second distinct contextId for the same connector in the same session is rejected
     await expect(store.bind("session-1", ctx43)).rejects.toThrow(ConnectorValidationError);
-
-    // Binding an already-claimed context to a different session is rejected
     await expect(store.bind("session-2", ctx42)).rejects.toThrow(ConnectorValidationError);
   });
 
@@ -112,66 +108,44 @@ describe("DefaultContextSessionStore", () => {
     expect(await store.getSessionId(first)).toBe("session-parallel");
   });
 
-  it("persists pure JSON ConnectorContext records to disk and recovers after restart, plus cascades removeSession", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "dsh-ctx-store-"));
-    tempDirs.push(dir);
-    const filePath = join(dir, "bindings.json");
+  it("persists pure JSON ConnectorContext records via real @deepseek-ai/dsh-storage-domain and cascades removeSession across restarts", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "dsh-domain-store-"));
+    tempDirs.push(storageRoot);
 
-    const store1 = await DefaultContextSessionStore.open(
-      new JsonFileContextStorageAdapter(filePath),
-    );
+    const host1 = await TestDshHost.start({ storageRoot });
+    const domain1 = await host1.ctx.storageDomain.open(CONNECTOR_CONTEXT_DOMAIN);
+    const store1 = DefaultContextSessionStore.fromDomain(domain1);
+
     const tapdCtx = createConnectorContext(tapdConnector, "2001/story/10086");
     const githubCtx = createConnectorContext(githubConnector, "chiichen/dsh-connector#9");
 
     await store1.bind("session-persist", tapdCtx);
     await store1.bind("session-persist", githubCtx);
+    await domain1.close();
+    await host1.stop({ keepStorageDir: true });
 
-    // Simulate process restart
-    const store2 = await DefaultContextSessionStore.open(
-      new JsonFileContextStorageAdapter(filePath),
-    );
+    // Cold host restart over the same storageRoot
+    const host2 = await TestDshHost.start({ storageRoot });
+    const domain2 = await host2.ctx.storageDomain.open(CONNECTOR_CONTEXT_DOMAIN);
+    const store2 = DefaultContextSessionStore.fromDomain(domain2);
+
     const recoveredTapd = await store2.getContext("session-persist", "tapd");
     expect(recoveredTapd).toEqual(tapdCtx);
     expect(Object.isFrozen(recoveredTapd)).toBe(true);
     expect(await store2.getSessionId(githubCtx)).toBe("session-persist");
 
-    // Delete session and verify cascade cleanup across restart
+    // Delete session and verify cascade cleanup across another restart
     await store2.removeSession("session-persist");
     expect(await store2.getSessionId(tapdCtx)).toBeUndefined();
     expect(await store2.getContext("session-persist", "tapd")).toBeUndefined();
+    await domain2.close();
+    await host2.stop({ keepStorageDir: true });
 
-    const store3 = await DefaultContextSessionStore.open(
-      new JsonFileContextStorageAdapter(filePath),
-    );
+    const host3 = await TestDshHost.start({ storageRoot });
+    const domain3 = await host3.ctx.storageDomain.open(CONNECTOR_CONTEXT_DOMAIN);
+    const store3 = DefaultContextSessionStore.fromDomain(domain3);
     expect(await store3.getSessionId(tapdCtx)).toBeUndefined();
-  });
-
-  it("supports DshStorageDomainAdapter over a host KV table", async () => {
-    const backing = new Map<
-      string,
-      { sessionId: string; connectorName: string; contextId: ConnectorContextId }
-    >();
-    const kvTable = {
-      async entries() {
-        return [...backing.entries()];
-      },
-      async set(
-        key: string,
-        value: { sessionId: string; connectorName: string; contextId: ConnectorContextId },
-      ) {
-        backing.set(key, value);
-      },
-      async delete(key: string) {
-        return backing.delete(key);
-      },
-    };
-
-    const store1 = await DefaultContextSessionStore.open(new DshStorageDomainAdapter(kvTable));
-    const ctx = createConnectorContext(tapdConnector, "story:777");
-    await store1.bind("session-kv", ctx);
-
-    const store2 = await DefaultContextSessionStore.open(new DshStorageDomainAdapter(kvTable));
-    expect(await store2.getSessionId(ctx)).toBe("session-kv");
-    expect(await store2.getContext("session-kv", "tapd")).toEqual(ctx);
+    await domain3.close();
+    await host3.stop({ keepStorageDir: true });
   });
 });

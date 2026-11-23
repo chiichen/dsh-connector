@@ -1,63 +1,165 @@
-import { randomUUID } from "node:crypto";
-import type { PersistedContextRecord } from "../../src/context-store";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Context } from "@deepseek-ai/cordis";
 import type {
-  DshAgentLike,
-  DshCordisContextLike,
-  DshOptionalServicesMap,
-  DshToolDefinitionLike,
-  DshWebServerRouteLike,
-} from "../../src/dsh-types";
+  Agent,
+  AgentRegistry,
+  CreateAgentOptions,
+  ResumeAgentOptions,
+} from "@deepseek-ai/dsh-agent";
+import type {
+  SessionController,
+  SessionCreateRequest,
+  SessionCreateValue,
+  SessionPromptRequest,
+  SessionPromptValue,
+  SessionRenameRequest,
+  SessionRenameValue,
+} from "@deepseek-ai/dsh-api-session-controller";
+import { WebServer } from "@deepseek-ai/dsh-host-webserver";
+import type { ToolCallId, UserMessage } from "@deepseek-ai/dsh-llm";
+import { SessionId, SessionSeq, SessionStore, type Session } from "@deepseek-ai/dsh-session";
+import {
+  SessionPersistenceRevision,
+  type SessionPersistence,
+  type SessionPersistenceSnapshot,
+} from "@deepseek-ai/dsh-session-persistence";
+import type { SessionTitleService, SessionTitleSnapshot } from "@deepseek-ai/dsh-session-title";
+import Storage from "@deepseek-ai/dsh-storage";
+import * as StorageDomain from "@deepseek-ai/dsh-storage-domain";
+import * as StorageJson from "@deepseek-ai/dsh-storage-json";
+import { ToolsService, type ToolRunContext } from "@deepseek-ai/dsh-tools";
+import { brandString } from "@deepseek-ai/dsh-brand";
+import { randomUUID } from "node:crypto";
 
 export interface RecordedPrompt {
-  readonly sessionId: string;
+  readonly sessionId: SessionId;
   readonly text: string;
   readonly mode: "queue" | "steer";
   readonly via: "sessionController" | "agent";
 }
 
-export class MockDshHost {
-  readonly liveAgents = new Map<string, DshAgentLike>();
-  readonly persistedSessions = new Map<string, { cwd: string; title?: string }>();
+export interface TestDshHostOptions {
+  readonly useSessionController?: boolean;
+  readonly withWebServer?: boolean;
+  readonly storageRoot?: string;
+  readonly persistedSessions?: Map<SessionId, { cwd: string; title?: string }>;
+}
+
+export function createTestToolRunContext(options?: {
+  readonly sessionId?: string;
+  readonly signal?: AbortSignal;
+}): ToolRunContext {
+  const signal = options?.signal ?? new AbortController().signal;
+  const callId = brandString<ToolCallId>(`call-${randomUUID()}`);
+  const agent =
+    options?.sessionId !== undefined ? ({ id: SessionId(options.sessionId) } as Agent) : undefined;
+
+  return {
+    callId,
+    rootCallId: callId,
+    name: "test_tool",
+    arguments: {},
+    ...(agent !== undefined ? { agent } : {}),
+    signal,
+    token: Symbol("tool-exec-token") as ToolRunContext["token"],
+    deferContext() {},
+    concludeTurn() {},
+  };
+}
+
+export class TestDshHost {
+  readonly ctx: Context;
+  readonly liveAgents = new Map<SessionId, Agent>();
+  readonly persistedSessions: Map<SessionId, { cwd: string; title?: string }>;
   readonly prompts: RecordedPrompt[] = [];
-  readonly registeredTools = new Map<string, DshToolDefinitionLike>();
-  readonly registeredRoutes: DshWebServerRouteLike[] = [];
-  readonly disposers: Array<() => Promise<void> | void> = [];
-  storageDomainCloseCount = 0;
+  readonly storageRoot: string;
+  private readonly sessionDetachers = new Map<SessionId, () => void>();
+  private readonly ownedTempDir: string | undefined;
 
-  private readonly useSessionController: boolean;
-  private readonly storageDomainBacking: Map<string, PersistedContextRecord> | undefined;
-
-  constructor(options?: {
-    useSessionController?: boolean;
-    storageDomainBacking?: Map<string, PersistedContextRecord>;
-  }) {
-    this.useSessionController = options?.useSessionController ?? true;
-    this.storageDomainBacking = options?.storageDomainBacking;
+  private constructor(
+    ctx: Context,
+    storageRoot: string,
+    ownedTempDir: string | undefined,
+    persistedSessions: Map<SessionId, { cwd: string; title?: string }>,
+  ) {
+    this.ctx = ctx;
+    this.storageRoot = storageRoot;
+    this.ownedTempDir = ownedTempDir;
+    this.persistedSessions = persistedSessions;
   }
 
-  deleteSessionInUi(sessionId: string): void {
-    this.liveAgents.delete(sessionId);
-    this.persistedSessions.delete(sessionId);
+  static async start(options?: TestDshHostOptions): Promise<TestDshHost> {
+    const ownedTempDir =
+      options?.storageRoot === undefined
+        ? await mkdtemp(join(tmpdir(), "dsh-connector-test-"))
+        : undefined;
+    const storageRoot = options?.storageRoot ?? ownedTempDir!;
+    const persistedSessions =
+      options?.persistedSessions ?? new Map<SessionId, { cwd: string; title?: string }>();
+
+    const ctx = new Context();
+    const host = new TestDshHost(ctx, storageRoot, ownedTempDir, persistedSessions);
+
+    ctx.provide("systemPrompt", true);
+    (ctx as unknown as { systemPrompt: { tools: () => () => void } }).systemPrompt = {
+      tools: () => () => {},
+    };
+
+    await ctx.plugin(Storage);
+    await ctx.plugin(StorageJson, { root: storageRoot });
+    await ctx.plugin(StorageDomain, { backend: "json" });
+    await ctx.plugin(SessionStore);
+    await ctx.plugin(ToolsService, {});
+
+    if (options?.withWebServer ?? false) {
+      await ctx.plugin(WebServer, { host: "127.0.0.1", port: 0 });
+    }
+
+    host.mountSessionAndAgentStubs(options?.useSessionController ?? true);
+    return host;
   }
 
-  evictLiveAgentToColdStorage(sessionId: string): void {
-    this.liveAgents.delete(sessionId);
-  }
+  private mountSessionAndAgentStubs(useSessionController: boolean): void {
+    const extractUserMessageText = (msg: UserMessage): string =>
+      msg.content
+        .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
 
-  createContext(): DshCordisContextLike {
-    const createAgentInstance = (sessionId: string, cwd: string): DshAgentLike => {
-      const agent: DshAgentLike = {
+    const ensureLiveAgent = (sessionId: SessionId, cwd: string): Agent => {
+      let liveSession = this.ctx.sessions.get(sessionId);
+      if (liveSession === undefined) {
+        const prepared = this.ctx.sessions.prepare(sessionId, { meta: { cwd } });
+        const detach = this.ctx.sessions.enter(prepared);
+        this.ctx.sessions.announce(prepared);
+        this.sessionDetachers.set(sessionId, detach);
+        liveSession = prepared;
+      }
+      const agent = {
         id: sessionId,
-        session: { id: sessionId },
-        followup: async (message) => {
-          const text = typeof message === "string" ? message : message.text;
-          this.prompts.push({ sessionId, text, mode: "queue", via: "agent" });
+        session: liveSession,
+        options: {},
+        ctx: this.ctx,
+        followup: (message: UserMessage) => {
+          this.prompts.push({
+            sessionId,
+            text: extractUserMessageText(message),
+            mode: "queue",
+            via: "agent",
+          });
         },
-        steer: async (message) => {
-          const text = typeof message === "string" ? message : message.text;
-          this.prompts.push({ sessionId, text, mode: "steer", via: "agent" });
+        steer: (message: UserMessage) => {
+          this.prompts.push({
+            sessionId,
+            text: extractUserMessageText(message),
+            mode: "steer",
+            via: "agent",
+          });
         },
-      };
+      } as unknown as Agent;
+
       this.liveAgents.set(sessionId, agent);
       if (!this.persistedSessions.has(sessionId)) {
         this.persistedSessions.set(sessionId, { cwd });
@@ -65,114 +167,141 @@ export class MockDshHost {
       return agent;
     };
 
-    const optionalServices: Partial<DshOptionalServicesMap> = {
-      sessionPersistence: {
-        stat: async (sessionId: string) => this.persistedSessions.get(sessionId),
-      },
-      sessionTitle: {
-        setTitle: async (sessionId: string, title: string) => {
-          const entry = this.persistedSessions.get(sessionId);
-          if (entry !== undefined) {
-            entry.title = title;
-          }
-        },
-      },
-      webServer: {
-        register: (route: DshWebServerRouteLike) => {
-          this.registeredRoutes.push(route);
-          return () => {
-            const idx = this.registeredRoutes.indexOf(route);
-            if (idx >= 0) this.registeredRoutes.splice(idx, 1);
-          };
-        },
-      },
-    };
-
-    if (this.storageDomainBacking !== undefined) {
-      const backing = this.storageDomainBacking;
-      optionalServices.storageDomain = {
-        open: async (_spec: unknown) => ({
-          table: (tableName: string) => ({
-            entries: async () => {
-              const prefix = `${tableName}:`;
-              const rows: Array<readonly [string, PersistedContextRecord]> = [];
-              for (const [k, v] of backing.entries()) {
-                if (k.startsWith(prefix)) {
-                  rows.push([k.slice(prefix.length), v] as const);
-                }
-              }
-              return rows;
-            },
-            set: async (key: string, value: PersistedContextRecord) => {
-              backing.set(`${tableName}:${key}`, value);
-            },
-            delete: async (key: string) => backing.delete(`${tableName}:${key}`),
-          }),
-          close: async () => {
-            this.storageDomainCloseCount += 1;
+    const agentsStub = {
+      get: (id: SessionId) => this.liveAgents.get(id),
+      create: async (opts: CreateAgentOptions) => {
+        const cwd = opts.meta?.cwd ?? "/tmp/dsh-test";
+        const agent = ensureLiveAgent(opts.sessionId, cwd);
+        return {
+          agent,
+          dispose: async () => {
+            this.liveAgents.delete(opts.sessionId);
           },
-        }),
-      };
-    }
-
-    if (this.useSessionController) {
-      optionalServices.sessionController = {
-        create: async ({ cwd = "/tmp/dsh-connectors" }) => {
-          const mintedId = `session-${randomUUID()}`;
-          const agent = createAgentInstance(mintedId, cwd);
-          return { sessionId: mintedId, agent };
-        },
-        prompt: async ({ sessionId, mode, content }) => {
-          if (!this.persistedSessions.has(sessionId) && !this.liveAgents.has(sessionId)) {
-            throw new Error(`Session "${sessionId}" not found`);
-          }
-          const text =
-            typeof content === "string" ? content : content.map((block) => block.text).join("\n");
-          this.prompts.push({ sessionId, text, mode, via: "sessionController" });
-        },
-      };
-    }
-
-    return {
-      agents: {
-        get: (sessionId) => this.liveAgents.get(sessionId),
-        create: async ({ sessionId, meta }) => ({
-          agent: createAgentInstance(sessionId, meta.cwd),
-        }),
-        resume: async ({ resumeSessionId }) => {
-          const persisted = this.persistedSessions.get(resumeSessionId);
-          if (persisted === undefined) {
-            throw new Error(`Cold session "${resumeSessionId}" not found`);
-          }
-          return { agent: createAgentInstance(resumeSessionId, persisted.cwd) };
-        },
+        };
       },
-      sessions: {
-        get: (sessionId) => (this.liveAgents.has(sessionId) ? { id: sessionId } : undefined),
-      },
-      tools: {
-        register: (definition) => {
-          this.registeredTools.set(definition.name, definition);
-          return () => {
-            this.registeredTools.delete(definition.name);
-          };
-        },
-      },
-      get: <K extends keyof DshOptionalServicesMap>(key: K) =>
-        optionalServices[key] as DshOptionalServicesMap[K] | undefined,
-      effect: (setup) => {
-        const dispose = setup();
-        if (typeof dispose === "function") {
-          this.disposers.push(dispose);
+      resume: async (opts: ResumeAgentOptions) => {
+        const persisted = this.persistedSessions.get(opts.resumeSessionId);
+        if (persisted === undefined) {
+          throw new Error(`Cold session "${opts.resumeSessionId}" not found`);
         }
+        const agent = ensureLiveAgent(opts.resumeSessionId, persisted.cwd);
+        return {
+          agent,
+          dispose: async () => {
+            this.liveAgents.delete(opts.resumeSessionId);
+          },
+        };
       },
-    };
+    } as unknown as AgentRegistry;
+
+    const persistenceStub = {
+      stat: async (id: SessionId): Promise<SessionPersistenceSnapshot | undefined> => {
+        const entry = this.persistedSessions.get(id);
+        if (entry === undefined) return undefined;
+        return {
+          header: {
+            version: 4,
+            id,
+            createdAt: Date.now(),
+            cwd: entry.cwd,
+            isSeeded: false,
+          },
+          revision: SessionPersistenceRevision("rev-1"),
+        };
+      },
+    } as unknown as SessionPersistence;
+
+    const titleStub = {
+      rename: (session: Session, title: string): SessionTitleSnapshot => {
+        const entry = this.persistedSessions.get(session.id);
+        if (entry !== undefined) {
+          entry.title = title;
+        }
+        return {
+          title,
+          messageSeqs: [],
+          source: { kind: "user" },
+          eventSeq: SessionSeq(0),
+          updatedAt: Date.now(),
+        };
+      },
+    } as unknown as SessionTitleService;
+
+    this.ctx.provide("agents", true);
+    this.ctx.agents = agentsStub;
+
+    this.ctx.provide("sessionPersistence", true);
+    this.ctx.sessionPersistence = persistenceStub;
+
+    this.ctx.provide("sessionTitle", true);
+    this.ctx.sessionTitle = titleStub;
+
+    if (useSessionController) {
+      const controllerStub = {
+        create: async (req: SessionCreateRequest): Promise<SessionCreateValue> => {
+          const mintedId = req.sessionId ?? SessionId(`session-${randomUUID()}`);
+          ensureLiveAgent(mintedId, req.cwd ?? "/tmp/dsh-connectors");
+          return { sessionId: mintedId };
+        },
+        rename: async (req: SessionRenameRequest): Promise<SessionRenameValue> => {
+          const entry = this.persistedSessions.get(req.sessionId);
+          if (entry !== undefined) {
+            entry.title = req.title;
+          }
+          return { title: req.title, seq: 0 };
+        },
+        prompt: async (
+          req: SessionPromptRequest,
+          signal: AbortSignal,
+        ): Promise<SessionPromptValue> => {
+          signal.throwIfAborted();
+          if (!this.persistedSessions.has(req.sessionId) && !this.liveAgents.has(req.sessionId)) {
+            throw new Error(`Session "${req.sessionId}" not found`);
+          }
+          const text = req.content
+            .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+            .map((part) => part.text)
+            .join("\n");
+          this.prompts.push({
+            sessionId: req.sessionId,
+            text,
+            mode: req.mode,
+            via: "sessionController",
+          });
+          return { accepted: true };
+        },
+      } as unknown as SessionController;
+
+      this.ctx.provide("sessionController", true);
+      this.ctx.sessionController = controllerStub;
+    }
   }
 
-  async disposeAll(): Promise<void> {
-    for (const dispose of [...this.disposers].reverse()) {
-      await dispose();
+  deleteSessionInUi(rawSessionId: string): void {
+    const id = SessionId(rawSessionId);
+    this.liveAgents.delete(id);
+    this.persistedSessions.delete(id);
+    const detach = this.sessionDetachers.get(id);
+    if (detach !== undefined) {
+      this.sessionDetachers.delete(id);
+      detach();
     }
-    this.disposers.length = 0;
+  }
+
+  evictLiveAgentToColdStorage(rawSessionId: string): void {
+    const id = SessionId(rawSessionId);
+    this.liveAgents.delete(id);
+    const detach = this.sessionDetachers.get(id);
+    if (detach !== undefined) {
+      this.sessionDetachers.delete(id);
+      detach();
+    }
+  }
+
+  async stop(options?: { keepStorageDir?: boolean }): Promise<void> {
+    await this.ctx.fiber.dispose();
+    if (!(options?.keepStorageDir ?? false) && this.ownedTempDir !== undefined) {
+      await rm(this.ownedTempDir, { recursive: true, force: true });
+    }
   }
 }
