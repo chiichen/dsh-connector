@@ -100,3 +100,22 @@ export {
 } from "./context-target";
 
 export { splitDiscordMessage } from "./chunking";
+
+export {
+  getHeaderFirstValue,
+  verifyDiscordEd25519Signature,
+  verifyDiscordInteractionHeaders,
+  type VerifyDiscordEd25519Params,
+  type VerifyDiscordInteractionHeadersParams,
+} from "./signature";
+
+export {
+  DiscordRestClient,
+  type CreateDiscordMessageInput,
+  type DiscordRestClientOptions,
+  type EditDiscordMessageInput,
+  type EditOriginalInteractionInput,
+  type StartThreadFromMessageInput,
+} from "./api";
+
+export { DiscordSender, type DiscordSenderOptions } from "./sender";
