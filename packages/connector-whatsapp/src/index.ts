@@ -1,3 +1,5 @@
+export const WHATSAPP_CONNECTOR_PACKAGE_NAME = "@dsh-connector/connector-whatsapp" as const;
+
 export { splitWhatsAppText } from "./chunker";
 
 export { createWhatsAppConnector, WhatsAppConnector } from "./connector";

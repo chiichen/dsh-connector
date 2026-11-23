@@ -181,7 +181,7 @@ function findMatchingContact(
       return contact;
     }
   }
-  return contacts.length === 1 ? contacts[0] : undefined;
+  return contacts.length === 1 && contacts[0]?.wa_id !== undefined ? contacts[0] : undefined;
 }
 
 function decodeWebhookEnvelope(rawBody: Uint8Array): WhatsAppWebhookEnvelope | undefined {

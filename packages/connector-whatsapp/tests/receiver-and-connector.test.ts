@@ -10,9 +10,14 @@ import {
   type ConnectorWebhookRequest,
   type InboundDeliveryMeta,
 } from "@dsh-connector/core";
-import { computeWhatsAppSignature } from "../src/signature";
-import { createWhatsAppConnector, WhatsAppConnector } from "../src/connector";
-import type { WhatsAppReceivePayload, WhatsAppStreamingAdapter } from "../src";
+import {
+  computeWhatsAppSignature,
+  createWhatsAppConnector,
+  WHATSAPP_CONNECTOR_PACKAGE_NAME,
+  WhatsAppConnector,
+  type WhatsAppReceivePayload,
+  type WhatsAppStreamingAdapter,
+} from "../src";
 
 const APP_SECRET = "whatsapp-app-secret-xyz";
 const VERIFY_TOKEN = "whatsapp-verify-token-abc";
@@ -102,6 +107,7 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
     });
 
     expect(connector.name).toBe("whatsapp");
+    expect(WHATSAPP_CONNECTOR_PACKAGE_NAME).toBe("@dsh-connector/connector-whatsapp");
     expect(connector.getStreamingOptions()?.sendTypingIndicator).toBe(true);
     expect(connector.getStreamingAdapter()).toBe(mockStreamingAdapter);
     expect(connector.isStarted()).toBe(false);
@@ -489,6 +495,140 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
     expect(formattedGroup).toEqual({
       title: "WhatsApp Group Y2FwaV9ncm91cDox",
       text: "[WhatsApp Group Y2FwaV9ncm91cDox] Zhang San (8613800138000):\nRun diagnostics",
+    });
+  });
+
+  it("covers unsigned dev webhooks, list_reply messages, invalid UTF-8/scalar JSON, and missing contact names", async () => {
+    const receivedPayloads: WhatsAppReceivePayload[] = [];
+    const customAdapter: WhatsAppStreamingAdapter = {
+      startStream: vi.fn(),
+      updateStream: vi.fn(),
+      completeStream: vi.fn(),
+      abortStream: vi.fn(),
+    };
+
+    const devConnector = createWhatsAppConnector({
+      name: "whatsapp-dev",
+      accessToken: "token",
+      phoneNumberId: PHONE_NUMBER_ID,
+      apiBaseUrl: "https://graph.facebook.com/",
+      apiVersion: "v24.0",
+      requestTimeoutMs: 5_000,
+      maxTextLength: 2_000,
+      contextMarkerStyle: "html-comment",
+      allowUnsignedWebhooks: true,
+      streamingAdapter: customAdapter,
+    });
+    expect(devConnector.getStreamingAdapter()).toBe(customAdapter);
+
+    const idGen = createDefaultContextIdGenerator();
+    devConnector.getReceiver().init!({
+      allocateContextId: () => idGen.generate("whatsapp-dev"),
+      contextIdGenerator: idGen,
+      onReceive: vi.fn(async (_ctx, payload) => {
+        receivedPayloads.push(payload);
+        return { sessionId: "sess-dev" };
+      }),
+      logger: createTestLogger(),
+    });
+
+    // Invalid UTF-8 bytes -> 400
+    const badUtf8Res = await devConnector.getReceiver().handleWebhook!({
+      method: "POST",
+      pathname: "/webhooks/whatsapp-dev",
+      subPath: "/",
+      query: new URLSearchParams(),
+      headers: {},
+      rawBody: new Uint8Array([0xff, 0xfe]),
+    });
+    expect(badUtf8Res.status).toBe(400);
+
+    // JSON scalar -> 400
+    const scalarJsonRes = await devConnector.getReceiver().handleWebhook!(
+      buildWebhookRequest({ rawBodyString: "123", signWithSecret: false }),
+    );
+    expect(scalarJsonRes.status).toBe(400);
+
+    // Unsigned dev webhook with non-messages field, missing id/from, marker-only text, and list_reply without contacts
+    const edgeRes = await devConnector.getReceiver().handleWebhook!(
+      buildWebhookRequest({
+        signWithSecret: false,
+        body: {
+          object: "whatsapp_business_account",
+          entry: [
+            {
+              changes: [
+                { field: "account_alerts", value: {} },
+                {
+                  field: "messages",
+                  value: {
+                    messaging_product: "whatsapp",
+                    metadata: { phone_number_id: PHONE_NUMBER_ID },
+                    messages: [
+                      {
+                        from: "16505550001",
+                        id: "wamid.no.contacts",
+                        timestamp: "1739321099",
+                        type: "text",
+                        text: { body: "No contacts array" },
+                      },
+                    ],
+                  },
+                },
+                {
+                  field: "messages",
+                  value: {
+                    messaging_product: "whatsapp",
+                    metadata: { phone_number_id: PHONE_NUMBER_ID },
+                    contacts: [{ profile: { name: "Missing WaId" } }],
+                    messages: [
+                      {
+                        from: "16505550000",
+                        timestamp: "1",
+                        type: "text",
+                        text: { body: "No ID" },
+                      },
+                      {
+                        from: "16505550000",
+                        id: "wamid.marker.only",
+                        timestamp: "0",
+                        type: "text",
+                        text: { body: "[#ctx:empty-after-strip]" },
+                      },
+                      {
+                        from: "16505550000",
+                        id: "wamid.list.1",
+                        timestamp: "invalid",
+                        type: "interactive",
+                        interactive: {
+                          type: "list_reply",
+                          list_reply: { id: "item-1", title: "Selected option A" },
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(edgeRes.status).toBe(200);
+    expect(receivedPayloads).toHaveLength(2);
+    expect(receivedPayloads[0]?.text).toBe("No contacts array");
+    expect(receivedPayloads[1]?.messageType).toBe("interactive");
+    expect(receivedPayloads[1]?.text).toBe("Selected option A");
+    expect(receivedPayloads[1]?.senderName).toBeUndefined();
+
+    const formatted = devConnector.getReceiver().formatInbound!(
+      receivedPayloads[1]!,
+      createConnectorContext("whatsapp-dev", "direct:16505550000"),
+    );
+    expect(formatted).toEqual({
+      title: "WhatsApp 16505550000",
+      text: "[WhatsApp] 16505550000:\nSelected option A",
     });
   });
 });

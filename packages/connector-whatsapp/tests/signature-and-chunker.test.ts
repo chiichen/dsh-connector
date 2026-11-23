@@ -118,6 +118,17 @@ describe("WhatsApp 4096-character text chunking", () => {
       expect(chunk.startsWith("```ts\n")).toBe(true);
       expect(chunk.endsWith("```")).toBe(true);
     }
+
+    // Closed code fence before split point should NOT reopen in next chunk
+    const closedThenProse = `\`\`\`js\nconst x = 1;\n\`\`\`\n\n${"Plain prose sentence. ".repeat(25)}`;
+    const closedChunks = splitWhatsAppText(closedThenProse, 200);
+    expect(closedChunks.length).toBeGreaterThan(1);
+    expect(closedChunks[1]?.startsWith("```")).toBe(false);
+  });
+
+  it("handles hard ASCII cuts and maxLength=1 boundaries", () => {
+    expect(splitWhatsAppText("abcdefghijkl", 5)).toEqual(["abcde", "fghij", "kl"]);
+    expect(splitWhatsAppText("ab", 1)).toEqual(["a", "b"]);
   });
 
   it("rejects empty text or invalid maxLength", () => {

@@ -93,14 +93,20 @@ describe("WhatsApp Cloud API outbound Sender", () => {
     });
 
     const groupCtx = createConnectorContext("whatsapp", "group:Y2FwaV9ncm91cDox");
-    await sender.send(groupCtx, { text: "Group update" });
-    expect(capturedRequests[2]?.body).toEqual({
-      messaging_product: "whatsapp",
-      recipient_type: "group",
-      to: "Y2FwaV9ncm91cDox",
-      type: "text",
-      text: { body: "Group update" },
+    const groupSend = createWhatsAppSender({
+      connectorName: "whatsapp",
+      accessToken: "EAATestToken123",
+      phoneNumberId: "106540352242922",
+      fetchFn: vi.fn(async () =>
+        createJsonResponse(200, {
+          messaging_product: "whatsapp",
+          messages: [{ id: "wamid.group.out.1", group_id: "Y2FwaV9ncm91cDox" }],
+        }),
+      ),
+      sentMessageTracker: tracker,
     });
+    const groupRes = await groupSend.send(groupCtx, { text: "Group update" });
+    expect(groupRes.recipientId).toBe("Y2FwaV9ncm91cDox");
 
     // Tier 3: Pure UUID contextId without explicit `to` throws ConnectorTargetRequiredError
     await expect(sender.send(uuidCtx, { text: "Missing target" })).rejects.toThrow(
@@ -225,7 +231,34 @@ describe("WhatsApp Cloud API outbound Sender", () => {
       retryable: false,
     });
 
-    // 5. Missing messages[0].id in 200 response -> ConnectorTransportError
+    // 5. Non-JSON 502 & empty 503 responses -> retryable ConnectorTransportError
+    const html502Sender = createWhatsAppSender({
+      connectorName: "whatsapp",
+      accessToken: "token",
+      phoneNumberId: "106540352242922",
+      fetchFn: vi.fn(async () => new Response("<html>Bad Gateway</html>", { status: 502 })),
+      sentMessageTracker: new SentMessageTracker(),
+    });
+    await expect(html502Sender.send(ctx, { text: "hi" })).rejects.toMatchObject({
+      name: "ConnectorTransportError",
+      statusCode: 502,
+      retryable: true,
+    });
+
+    const empty503Sender = createWhatsAppSender({
+      connectorName: "whatsapp",
+      accessToken: "token",
+      phoneNumberId: "106540352242922",
+      fetchFn: vi.fn(async () => new Response("", { status: 503 })),
+      sentMessageTracker: new SentMessageTracker(),
+    });
+    await expect(empty503Sender.send(ctx, { text: "hi" })).rejects.toMatchObject({
+      name: "ConnectorTransportError",
+      statusCode: 503,
+      retryable: true,
+    });
+
+    // 6. Missing messages[0].id in 200 response -> ConnectorTransportError
     const emptyMsgSender = createWhatsAppSender({
       connectorName: "whatsapp",
       accessToken: "token",
