@@ -10,11 +10,16 @@ import {
   TELEGRAM_WEBHOOK_SECRET_HEADER,
   TelegramApiClient,
   TelegramReceiver,
+  TelegramSender,
+  assertValidWebhookSecretToken,
   createTelegramConnector,
   defaultTelegramSleep,
+  formatTelegramInboundPrompt,
+  normalizeTelegramUpdate,
   parseRawTelegramUpdate,
   parseTelegramContextTarget,
   resolveTelegramSendTarget,
+  splitTelegramMessageText,
   verifyTelegramWebhookSecretToken,
 } from "../src";
 import { HTTP_STATUS_BAD_REQUEST } from "../src/constants";
@@ -421,5 +426,270 @@ describe("Stage 4 public barrel exports and comprehensive edge-case coverage", (
     expect(retryPollStep).toBe(1);
     // Offset was NOT advanced on "retry" mode when handler threw
     expect(retryReceiver.getCurrentOffset()).toBeUndefined();
+  });
+
+  it("covers remaining optional parameter branches across sender, api-client, inbound, receiver, and auth", async () => {
+    expect(() => assertValidWebhookSecretToken("")).toThrow(ConnectorValidationError);
+    expect(() => splitTelegramMessageText("hello", 1, "telegram")).toThrow(
+      ConnectorValidationError,
+    );
+
+    // Non-threaded sender with all optional sendMessage flags
+    const apiClient = new TelegramApiClient({
+      botToken: SAMPLE_TOKEN,
+      sleepFn: async () => {},
+      fetchFn: vi.fn(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/getUpdates")) {
+          return new Response(JSON.stringify({ ok: true, result: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.endsWith("/sendMessage") || url.endsWith("/editMessageText")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: { message_id: 301, date: 1732350000, chat: { id: 555, type: "private" } },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    });
+
+    await expect(apiClient.getUpdates()).resolves.toEqual([]);
+    await expect(
+      apiClient.editMessageText({
+        chatId: 555,
+        messageId: 301,
+        text: "Edited",
+        disableLinkPreview: false,
+        businessConnectionId: "biz-1",
+      }),
+    ).resolves.toMatchObject({ message_id: 301 });
+    await expect(
+      apiClient.sendChatAction({
+        chatId: 555,
+        action: "upload_document",
+        businessConnectionId: "biz-1",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      apiClient.sendMessageDraft({
+        chatId: 555,
+        draftId: 2,
+        parseMode: "MarkdownV2",
+      }),
+    ).resolves.toBe(true);
+
+    // 429 without retry_after / description falls back to 1s default
+    const fallback429Client = new TelegramApiClient({
+      botToken: SAMPLE_TOKEN,
+      maxSendRetries: 0,
+      fetchFn: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error_code: 429 }), {
+            status: 429,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    });
+    await expect(fallback429Client.sendMessage({ chatId: 1, text: "x" })).rejects.toMatchObject({
+      retryAfterSeconds: 1,
+    });
+
+    const sender = new TelegramSender({
+      connectorName: "telegram",
+      apiClient,
+      description: "Custom description",
+    });
+    const nonThreadRes = await sender.send(createConnectorContext("telegram", "p2p:555"), {
+      text: "Formatted DM",
+      parseMode: "MarkdownV2",
+      disableNotification: true,
+      protectContent: true,
+      disableLinkPreview: false,
+    });
+    expect(nonThreadRes.messageThreadId).toBeUndefined();
+
+    // Explicit string chatId with messageThreadId omitted
+    const explicitStringTarget = resolveTelegramSendTarget(
+      createConnectorContext("telegram", "p2p:555"),
+      { chatId: "@public_group" },
+    );
+    expect(explicitStringTarget).toEqual({ chatId: "@public_group" });
+
+    // Inbound optional branches: edited_channel_post, caption_entities, is_forum, bare @mention, marker-only message, numeric allowlists, username-matched bot filter
+    const fullUpdate = parseRawTelegramUpdate({
+      update_id: 900,
+      edited_message: {
+        message_id: 1,
+        date: 100,
+        chat: { id: 10, type: "private", first_name: "A", last_name: "B", username: "ab" },
+        text: "edit",
+      },
+      channel_post: {
+        message_id: 2,
+        date: 100,
+        chat: { id: -1001, type: "channel", title: "Ch" },
+        text: "ch",
+      },
+      edited_channel_post: {
+        message_id: 3,
+        date: 100,
+        chat: { id: -1001, type: "channel", title: "Ch" },
+        text: "ech",
+      },
+      message: {
+        message_id: 4,
+        date: 100,
+        chat: { id: -1002, type: "supergroup", is_forum: true },
+        from: { id: 77, is_bot: false, first_name: "U" },
+        caption: "@solo_bot",
+        caption_entities: [{ type: "mention", offset: 0, length: 9 }],
+        reply_to_message: {
+          message_id: 3,
+          date: 90,
+          chat: { id: -1002, type: "supergroup" },
+        },
+      },
+    });
+    expect(fullUpdate?.edited_channel_post?.message_id).toBe(3);
+
+    const bareMentionNorm = normalizeTelegramUpdate(fullUpdate!, {
+      botUsername: "@solo_bot",
+      allowedChatIds: [-1002],
+      allowedUserIds: [77],
+    });
+    expect(bareMentionNorm?.payload.text).toBe("@solo_bot");
+    expect(bareMentionNorm?.meta.suggestedTitle).toBe("[Telegram] -1002");
+
+    // Prompt formatting when group has no chatTitle and reply has only @fromUsername or unknown author
+    const promptWithUsernameAuthor = formatTelegramInboundPrompt(
+      {
+        ...bareMentionNorm!.payload,
+        replyToMessage: {
+          messageId: 3,
+          fromUsername: "someone",
+          isFromBot: false,
+        },
+      },
+      createConnectorContext("telegram", "group:-1002"),
+    );
+    expect(promptWithUsernameAuthor.text).toContain("@someone");
+
+    const promptWithUnknownAuthor = formatTelegramInboundPrompt(
+      {
+        ...bareMentionNorm!.payload,
+        replyToMessage: {
+          messageId: 3,
+          isFromBot: false,
+        },
+      },
+      createConnectorContext("telegram", "group:-1002"),
+    );
+    expect(promptWithUnknownAuthor.text).toContain("from unknown:");
+
+    // Bot username self-filter (when botId is omitted) & blank botUsername normalization & marker-only message
+    expect(
+      normalizeTelegramUpdate(
+        {
+          update_id: 901,
+          message: {
+            message_id: 5,
+            date: 100,
+            chat: { id: 10, type: "private" },
+            from: { id: 88, is_bot: false, first_name: "Bot", username: "Solo_Bot" },
+            text: "echo",
+          },
+        },
+        { botUsername: "solo_bot" },
+      ),
+    ).toBeUndefined();
+
+    expect(
+      normalizeTelegramUpdate(
+        {
+          update_id: 902,
+          message: {
+            message_id: 6,
+            date: 100,
+            chat: { id: 10, type: "private" },
+            from: { id: 88, is_bot: false, first_name: "" },
+            text: "[#ctx:only-marker]",
+          },
+        },
+        { botUsername: "   " },
+      ),
+    ).toBeUndefined();
+
+    // Textual fallback mention scan (no entities array) in group
+    expect(
+      normalizeTelegramUpdate(
+        {
+          update_id: 903,
+          message: {
+            message_id: 7,
+            date: 100,
+            chat: { id: -1005, type: "group" },
+            from: { id: 88, is_bot: false, first_name: "" },
+            text: "hi @solo_bot_other and @solo_bot!",
+          },
+        },
+        { botUsername: "solo_bot" },
+      )?.payload.mentionedBot,
+    ).toBe(true);
+
+    // dropPendingUpdatesOnStart when queue is empty sets offset to 0
+    const generator = createDefaultContextIdGenerator();
+    let resolveEmptyDrop!: () => void;
+    const emptyDropDone = new Promise<void>((resolve) => {
+      resolveEmptyDrop = resolve;
+    });
+    let emptyDropCalls = 0;
+    const emptyDropReceiver = new TelegramReceiver({
+      connectorName: "telegram",
+      botId: 1,
+      botUsername: "b",
+      polling: {
+        dropPendingUpdatesOnStart: true,
+        allowedUpdates: ["message"],
+      },
+      apiClient: new TelegramApiClient({
+        botToken: SAMPLE_TOKEN,
+        fetchFn: vi.fn(async (_u, init) => {
+          emptyDropCalls += 1;
+          if (emptyDropCalls === 1) {
+            return new Response(JSON.stringify({ ok: true, result: [] }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          resolveEmptyDrop();
+          return await new Promise<Response>((_r, rej) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => rej(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }),
+      }),
+    });
+    emptyDropReceiver.init({
+      allocateContextId: () => generator.generate("telegram"),
+      contextIdGenerator: generator,
+      logger: { debug() {}, info() {}, warn() {}, error() {} },
+      onReceive: async () => ({ sessionId: "s1" }),
+    });
+    await emptyDropReceiver.startPolling();
+    await emptyDropDone;
+    await emptyDropReceiver.stopPolling();
+    expect(emptyDropReceiver.getCurrentOffset()).toBe(0);
   });
 });
