@@ -259,7 +259,7 @@ export interface DingTalkStreamSubscription {
  * enabling deterministic unit testing without network sockets.
  */
 export interface DingTalkMessageEventLike {
-  readonly data: unknown;
+  readonly data?: unknown;
 }
 
 export interface DingTalkCloseEventLike {

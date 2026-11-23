@@ -97,8 +97,26 @@ export function verifyDingTalkWebhookSignature(
   const nowMs = options.nowMs ?? Date.now();
   const maxSkewMs = options.maxWebhookSkewMs ?? options.maxSkewMs ?? DINGTALK_WEBHOOK_MAX_SKEW_MS;
 
-  if (signingSecret !== undefined && signingSecret.length > 0) {
-    const rawTimestamp = readHeaderValue(headers, DINGTALK_WEBHOOK_TIMESTAMP_HEADER);
+  const hasSigningSecret = signingSecret !== undefined && signingSecret.length > 0;
+  const hasOutgoingToken = outgoingToken !== undefined && outgoingToken.length > 0;
+
+  const rawTimestamp = readHeaderValue(headers, DINGTALK_WEBHOOK_TIMESTAMP_HEADER);
+  const rawSign = readHeaderValue(headers, DINGTALK_WEBHOOK_SIGN_HEADER);
+  const rawToken = readHeaderValue(headers, DINGTALK_WEBHOOK_TOKEN_HEADER);
+
+  if (
+    hasOutgoingToken &&
+    rawToken !== undefined &&
+    rawTimestamp === undefined &&
+    rawSign === undefined
+  ) {
+    if (!constantTimeStringEqual(rawToken, outgoingToken)) {
+      return { ok: false, reason: "invalid_token" };
+    }
+    return { ok: true };
+  }
+
+  if (hasSigningSecret) {
     if (rawTimestamp === undefined || !/^\d+$/.test(rawTimestamp)) {
       return { ok: false, reason: "missing_or_invalid_timestamp" };
     }
@@ -107,7 +125,6 @@ export function verifyDingTalkWebhookSignature(
       return { ok: false, reason: "timestamp_expired" };
     }
 
-    const rawSign = readHeaderValue(headers, DINGTALK_WEBHOOK_SIGN_HEADER);
     if (rawSign === undefined || rawSign.length === 0) {
       return { ok: false, reason: "missing_sign" };
     }
@@ -119,8 +136,7 @@ export function verifyDingTalkWebhookSignature(
     return { ok: true };
   }
 
-  if (outgoingToken !== undefined && outgoingToken.length > 0) {
-    const rawToken = readHeaderValue(headers, DINGTALK_WEBHOOK_TOKEN_HEADER);
+  if (hasOutgoingToken) {
     if (rawToken === undefined || !constantTimeStringEqual(rawToken, outgoingToken)) {
       return { ok: false, reason: "invalid_token" };
     }

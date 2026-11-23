@@ -44,11 +44,19 @@ export {
   type DingTalkVerifyWebhookOptions,
 } from "./auth";
 
+export { createDingTalkConnector, DingTalkConnector } from "./connector";
+
 export {
   normalizeDingTalkSessionWebhook,
   SessionWebhookCache,
   type SessionWebhookCacheOptions,
 } from "./http";
+
+export {
+  buildDingTalkStreamWebSocketUrl,
+  DingTalkReceiver,
+  type DingTalkReceiverOptions,
+} from "./receiver";
 
 export { DingTalkSender, type DingTalkSenderOptions } from "./sender";
 
