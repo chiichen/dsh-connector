@@ -1,5 +1,7 @@
 export { splitWhatsAppText } from "./chunker";
 
+export { createWhatsAppConnector, WhatsAppConnector } from "./connector";
+
 export {
   CONTENT_TYPE_JSON,
   CONTENT_TYPE_TEXT_PLAIN,
@@ -40,6 +42,19 @@ export {
   parseWhatsAppTargetFromContextId,
   SentMessageTracker,
 } from "./context-id";
+
+export {
+  createWhatsAppReceiver,
+  type WhatsAppReceiverConfig,
+  type WhatsAppWebhookChange,
+  type WhatsAppWebhookChangeValue,
+  type WhatsAppWebhookContact,
+  type WhatsAppWebhookEntry,
+  type WhatsAppWebhookEnvelope,
+  type WhatsAppWebhookIncomingMessage,
+  type WhatsAppWebhookMessageContext,
+  type WhatsAppWebhookStatusReceipt,
+} from "./receiver";
 
 export { createWhatsAppSender, type WhatsAppSenderConfig } from "./sender";
 
