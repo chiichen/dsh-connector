@@ -65,6 +65,7 @@ export interface WeComSenderOptions<TName extends string = "wecom"> {
   readonly connectorName: TName;
   readonly apiClient: WeComApiClient;
   readonly aibotTransport?: WeComAibotOutboundTransport;
+  readonly consumeCachedResponseUrl?: (contextId: string) => string | undefined;
   readonly defaultConversationChannel?: "app" | "aibot";
   readonly includeContextMarkerByDefault?: boolean;
   readonly contextMarkerStyle?: ContextMarkerStyle;
@@ -119,6 +120,9 @@ export class WeComSender<TName extends string = "wecom"> implements ConnectorSen
   private readonly connectorName: TName;
   private readonly apiClient: WeComApiClient;
   private readonly aibotTransport: WeComAibotOutboundTransport | undefined;
+  private readonly consumeCachedResponseUrl:
+    | ((contextId: string) => string | undefined)
+    | undefined;
   private readonly defaultConversationChannel: "app" | "aibot";
   private readonly includeContextMarkerByDefault: boolean;
   private readonly contextMarkerStyle: ContextMarkerStyle;
@@ -127,6 +131,11 @@ export class WeComSender<TName extends string = "wecom"> implements ConnectorSen
     this.connectorName = options.connectorName;
     this.apiClient = options.apiClient;
     this.aibotTransport = options.aibotTransport;
+    this.consumeCachedResponseUrl =
+      options.consumeCachedResponseUrl ??
+      (options.aibotTransport?.consumeCachedResponseUrl !== undefined
+        ? (ctxId) => options.aibotTransport?.consumeCachedResponseUrl?.(ctxId)
+        : undefined);
     this.defaultConversationChannel =
       options.defaultConversationChannel ??
       (options.apiClient.app === undefined && options.aibotTransport !== undefined
@@ -285,7 +294,7 @@ export class WeComSender<TName extends string = "wecom"> implements ConnectorSen
       }
 
       // `aibot` context: check single-use HTTP `response_url` cache first, then WebSocket proactive
-      const cachedResponseUrl = this.aibotTransport?.consumeCachedResponseUrl?.(context.contextId);
+      const cachedResponseUrl = this.consumeCachedResponseUrl?.(context.contextId);
       if (cachedResponseUrl !== undefined) {
         return {
           channel: "aibot",
