@@ -303,9 +303,9 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
       source: "gateway-message",
       eventId: message.id,
       channelId: effectiveChannelId,
-      ...(message.guild_id ? { guildId: message.guild_id } : {}),
-      ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
-      ...(isThread && parentChannelId ? { parentChannelId } : {}),
+      guildId: message.guild_id,
+      threadId: effectiveThreadId,
+      parentChannelId: isThread ? parentChannelId : undefined,
       authorId: message.author.id,
       authorName,
       text: effectiveText,
@@ -313,8 +313,8 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
       isDirectMessage,
       isThread,
       mentionedBot,
-      ...(replyToMessageId ? { replyToMessageId } : {}),
-      ...(referencedText ? { referencedText } : {}),
+      replyToMessageId,
+      referencedText,
       attachments,
       timestamp: message.timestamp,
     };
@@ -339,10 +339,10 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
   async handleWebhook(req: ConnectorWebhookRequest): Promise<ConnectorWebhookResponse> {
     return await handleDiscordInteractionWebhook(req, {
       connectorName: this.#connectorName,
-      ...(this.#publicKey !== undefined ? { publicKey: this.#publicKey } : {}),
-      ...(this.#botUserId !== undefined ? { botUserId: this.#botUserId } : {}),
+      publicKey: this.#publicKey,
+      botUserId: this.#botUserId,
       ignoreBotMessages: this.#ignoreBotMessages,
-      ...(this.#receiverContext !== undefined ? { receiverContext: this.#receiverContext } : {}),
+      receiverContext: this.#receiverContext,
     });
   }
 

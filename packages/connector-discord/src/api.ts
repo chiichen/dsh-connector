@@ -179,7 +179,7 @@ export class DiscordRestClient {
     return this.#request<DiscordUser>("users/@me", {
       method: "GET",
       requireBotAuth: true,
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
   }
 
@@ -191,7 +191,7 @@ export class DiscordRestClient {
     return this.#request<DiscordGatewayBotResponse>("gateway/bot", {
       method: "GET",
       requireBotAuth: true,
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
   }
 
@@ -207,7 +207,7 @@ export class DiscordRestClient {
     return this.#request<DiscordChannel>(`channels/${id}`, {
       method: "GET",
       requireBotAuth: true,
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
   }
 
@@ -225,7 +225,7 @@ export class DiscordRestClient {
       method: "POST",
       requireBotAuth: true,
       body: { recipient_id: id },
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
   }
 
@@ -246,18 +246,17 @@ export class DiscordRestClient {
       body: {
         content: input.content,
         allowed_mentions: input.allowedMentions ?? this.#allowedMentions,
-        ...(input.embeds !== undefined ? { embeds: input.embeds } : {}),
-        ...(replyId !== undefined
-          ? {
-              message_reference: {
+        embeds: input.embeds,
+        message_reference:
+          replyId !== undefined
+            ? {
                 message_id: replyId,
                 channel_id: channelId,
                 fail_if_not_exists: false,
-              },
-            }
-          : {}),
+              }
+            : undefined,
       },
-      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      signal: input.signal,
     });
   }
 
@@ -272,12 +271,12 @@ export class DiscordRestClient {
       method: "PATCH",
       requireBotAuth: true,
       body: {
-        ...(input.content !== undefined ? { content: input.content } : {}),
-        ...(input.embeds !== undefined ? { embeds: input.embeds } : {}),
-        ...(input.flags !== undefined ? { flags: input.flags } : {}),
+        content: input.content,
+        embeds: input.embeds,
+        flags: input.flags,
         allowed_mentions: input.allowedMentions ?? this.#allowedMentions,
       },
-      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      signal: input.signal,
     });
   }
 
@@ -310,12 +309,12 @@ export class DiscordRestClient {
       method: "PATCH",
       requireBotAuth: false,
       body: {
-        ...(input.content !== undefined ? { content: input.content } : {}),
-        ...(input.embeds !== undefined ? { embeds: input.embeds } : {}),
-        ...(input.flags !== undefined ? { flags: input.flags } : {}),
+        content: input.content,
+        embeds: input.embeds,
+        flags: input.flags,
         allowed_mentions: input.allowedMentions ?? this.#allowedMentions,
       },
-      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      signal: input.signal,
     });
   }
 
@@ -333,7 +332,7 @@ export class DiscordRestClient {
       method: "POST",
       requireBotAuth: true,
       expectBody: false,
-      ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+      signal: options?.signal,
     });
   }
 
@@ -353,11 +352,9 @@ export class DiscordRestClient {
       requireBotAuth: true,
       body: {
         name: normalizedName,
-        ...(input.autoArchiveDuration !== undefined
-          ? { auto_archive_duration: input.autoArchiveDuration }
-          : {}),
+        auto_archive_duration: input.autoArchiveDuration,
       },
-      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      signal: input.signal,
     });
   }
 

@@ -73,7 +73,27 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function defaultCreateWebSocket(url: string): WebSocketLike {
+function isDiscordChannelRecord(value: unknown): value is DiscordChannel {
+  return (
+    isPlainRecord(value) &&
+    typeof value["id"] === "string" &&
+    value["id"].length > 0 &&
+    typeof value["type"] === "number"
+  );
+}
+
+function rememberChannelArray(items: unknown, remember: (channel: DiscordChannel) => void): void {
+  if (!Array.isArray(items)) {
+    return;
+  }
+  for (const item of items) {
+    if (isDiscordChannelRecord(item)) {
+      remember(item);
+    }
+  }
+}
+
+export function defaultCreateDiscordWebSocket(url: string): WebSocketLike {
   if (typeof globalThis.WebSocket !== "function") {
     throw new ConnectorTransportError(
       "Global WebSocket is unavailable; pass createWebSocket in DiscordConnectorOptions",
@@ -106,9 +126,6 @@ export function buildDiscordGatewayUrl(
       `Discord Gateway URL must use wss:// protocol (received ${parsed.protocol})`,
       { connectorName },
     );
-  }
-  if (!parsed.pathname) {
-    parsed.pathname = "/";
   }
   parsed.searchParams.set("v", DISCORD_API_VERSION_STRING);
   parsed.searchParams.set("encoding", DISCORD_GATEWAY_ENCODING_JSON);
@@ -161,7 +178,7 @@ export class DiscordGatewayClient {
     this.#configuredGatewayUrl = options.gatewayUrl?.trim();
     this.#botUserId = options.botUserId?.trim() || undefined;
     this.#shard = options.shard;
-    this.#createWebSocket = options.createWebSocket ?? defaultCreateWebSocket;
+    this.#createWebSocket = options.createWebSocket ?? defaultCreateDiscordWebSocket;
     this.#reconnectDelaysMs =
       options.reconnectDelaysMs && options.reconnectDelaysMs.length > 0
         ? options.reconnectDelaysMs
@@ -276,6 +293,10 @@ export class DiscordGatewayClient {
     }
   }
 
+  #isActiveSocket(ws: WebSocketLike, expectedGen: number): boolean {
+    return this.#running && expectedGen === this.#generation && this.#ws === ws;
+  }
+
   #openSocket(expectedGen: number): void {
     if (!this.#running || expectedGen !== this.#generation || !this.#initialGatewayUrl) {
       return;
@@ -302,26 +323,23 @@ export class DiscordGatewayClient {
     this.#heartbeatAcked = true;
 
     ws.addEventListener("open", () => {
-      if (!this.#running || expectedGen !== this.#generation || this.#ws !== ws) {
-        return;
+      if (this.#isActiveSocket(ws, expectedGen)) {
+        this.#logger?.debug("Discord Gateway WebSocket opened", { url: targetUrl });
       }
-      this.#logger?.debug("Discord Gateway WebSocket opened", { url: targetUrl });
     });
 
     ws.addEventListener("message", (event) => {
-      if (!this.#running || expectedGen !== this.#generation || this.#ws !== ws) {
-        return;
+      if (this.#isActiveSocket(ws, expectedGen)) {
+        this.#handleRawFrame(ws, expectedGen, event.data);
       }
-      this.#handleRawFrame(ws, expectedGen, event.data);
     });
 
     ws.addEventListener("error", (event) => {
-      if (!this.#running || expectedGen !== this.#generation || this.#ws !== ws) {
-        return;
+      if (this.#isActiveSocket(ws, expectedGen)) {
+        this.#logger?.warn("Discord Gateway WebSocket error event", {
+          message: event.message ?? "unknown",
+        });
       }
-      this.#logger?.warn("Discord Gateway WebSocket error event", {
-        message: event.message ?? (event.error instanceof Error ? event.error.message : "unknown"),
-      });
     });
 
     ws.addEventListener("close", (event) => {
@@ -329,10 +347,9 @@ export class DiscordGatewayClient {
         this.#ws = null;
       }
       this.#clearHeartbeatTimer();
-      if (!this.#running || expectedGen !== this.#generation) {
-        return;
+      if (this.#running && expectedGen === this.#generation) {
+        this.#handleSocketClose(expectedGen, event.code ?? 1006, event.reason ?? "");
       }
-      this.#handleSocketClose(expectedGen, event.code ?? 1006, event.reason ?? "");
     });
   }
 
@@ -510,30 +527,9 @@ export class DiscordGatewayClient {
       }
       case DISCORD_GATEWAY_EVENTS.GUILD_CREATE: {
         if (isPlainRecord(data)) {
-          const channels = data["channels"];
-          if (Array.isArray(channels)) {
-            for (const ch of channels) {
-              if (
-                isPlainRecord(ch) &&
-                typeof ch["id"] === "string" &&
-                typeof ch["type"] === "number"
-              ) {
-                this.rememberChannel(ch as unknown as DiscordChannel);
-              }
-            }
-          }
-          const threads = data["threads"];
-          if (Array.isArray(threads)) {
-            for (const th of threads) {
-              if (
-                isPlainRecord(th) &&
-                typeof th["id"] === "string" &&
-                typeof th["type"] === "number"
-              ) {
-                this.rememberChannel(th as unknown as DiscordChannel);
-              }
-            }
-          }
+          const remember = (ch: DiscordChannel) => this.rememberChannel(ch);
+          rememberChannelArray(data["channels"], remember);
+          rememberChannelArray(data["threads"], remember);
         }
         break;
       }
@@ -541,26 +537,14 @@ export class DiscordGatewayClient {
       case DISCORD_GATEWAY_EVENTS.CHANNEL_UPDATE:
       case DISCORD_GATEWAY_EVENTS.THREAD_CREATE:
       case DISCORD_GATEWAY_EVENTS.THREAD_UPDATE: {
-        if (
-          isPlainRecord(data) &&
-          typeof data["id"] === "string" &&
-          typeof data["type"] === "number"
-        ) {
-          this.rememberChannel(data as unknown as DiscordChannel);
+        if (isDiscordChannelRecord(data)) {
+          this.rememberChannel(data);
         }
         break;
       }
       case DISCORD_GATEWAY_EVENTS.THREAD_LIST_SYNC: {
-        if (isPlainRecord(data) && Array.isArray(data["threads"])) {
-          for (const th of data["threads"]) {
-            if (
-              isPlainRecord(th) &&
-              typeof th["id"] === "string" &&
-              typeof th["type"] === "number"
-            ) {
-              this.rememberChannel(th as unknown as DiscordChannel);
-            }
-          }
+        if (isPlainRecord(data)) {
+          rememberChannelArray(data["threads"], (ch) => this.rememberChannel(ch));
         }
         break;
       }

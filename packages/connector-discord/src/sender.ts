@@ -80,10 +80,9 @@ export class DiscordSender<TName extends string = "discord"> implements Connecto
       if (cachedDmId !== undefined) {
         targetChannelId = cachedDmId;
       } else {
-        const dmChannel = await this.#api.createDmChannel(
-          resolved.userId,
-          options?.signal !== undefined ? { signal: options.signal } : undefined,
-        );
+        const dmChannel = await this.#api.createDmChannel(resolved.userId, {
+          signal: options?.signal,
+        });
         targetChannelId = dmChannel.id;
         this.#dmChannelCache.set(resolved.userId, targetChannelId);
       }
@@ -106,16 +105,14 @@ export class DiscordSender<TName extends string = "discord"> implements Connecto
       const sent = await this.#api.createMessage({
         channelId: targetChannelId,
         content: chunk,
-        ...(index === 0 && params.replyToMessageId !== undefined
-          ? { replyToMessageId: params.replyToMessageId }
-          : {}),
-        ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+        replyToMessageId: index === 0 ? params.replyToMessageId : undefined,
+        signal: options?.signal,
       });
       rawMessages.push(sent);
     }
 
     const messageIds = rawMessages.map((msg) => msg.id);
-    const primaryMessageId = messageIds[0] ?? "";
+    const primaryMessageId = messageIds[0]!;
 
     void this.#connectorName;
 

@@ -361,6 +361,27 @@ describe("Stage 2: Ed25519 webhook signature verification & Discord REST v10 Sen
       await expect(
         netErrApi.createMessage({ channelId: "41771983423143937", content: "hi" }),
       ).rejects.toThrow(ConnectorTransportError);
+
+      // 429 rate-limit with pre-aborted signal & header-based retry-after fallback
+      const preAborted = new AbortController();
+      preAborted.abort(new Error("already aborted"));
+      const rateLimitPreAbortedApi = new DiscordRestClient({
+        botToken: "test-bot-token",
+        fetchFn: vi.fn(
+          async () =>
+            new Response("{}", {
+              status: 429,
+              headers: { "retry-after": "0" },
+            }),
+        ),
+      });
+      await expect(
+        rateLimitPreAbortedApi.createMessage({
+          channelId: "41771983423143937",
+          content: "hi",
+          signal: preAborted.signal,
+        }),
+      ).rejects.toThrow(ConnectorTransportError);
     });
   });
 

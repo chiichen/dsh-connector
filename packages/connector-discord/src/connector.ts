@@ -144,46 +144,30 @@ export class DiscordConnector<TName extends string = "discord"> implements Conne
       this.#api = new DiscordRestClient({
         connectorName: resolvedName,
         botToken,
-        ...(options.apiBaseUrl !== undefined ? { baseUrl: options.apiBaseUrl } : {}),
-        ...(options.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
-        ...(options.requestTimeoutMs !== undefined ? { timeoutMs: options.requestTimeoutMs } : {}),
-        ...(options.defaultAllowedMentions !== undefined
-          ? { allowedMentions: options.defaultAllowedMentions }
-          : {}),
+        baseUrl: options.apiBaseUrl,
+        fetchFn: options.fetchFn,
+        timeoutMs: options.requestTimeoutMs,
+        allowedMentions: options.defaultAllowedMentions,
       });
 
       this.#sender = new DiscordSender<TName>({
         connectorName: this.name,
         api: this.#api,
-        ...(options.includeContextMarker !== undefined
-          ? { includeContextMarker: options.includeContextMarker }
-          : {}),
-        ...(options.contextMarkerStyle !== undefined
-          ? { contextMarkerStyle: options.contextMarkerStyle }
-          : {}),
-        ...(options.maxMessageLength !== undefined
-          ? { maxMessageLength: options.maxMessageLength }
-          : {}),
+        includeContextMarker: options.includeContextMarker,
+        contextMarkerStyle: options.contextMarkerStyle,
+        maxMessageLength: options.maxMessageLength,
       });
     }
 
     this.#receiver = new DiscordReceiver<TName>({
       connectorName: this.name,
-      ...(this.#api !== undefined ? { api: this.#api } : {}),
-      ...(publicKey !== undefined ? { publicKey } : {}),
-      ...(options.botUserId !== undefined ? { botUserId: options.botUserId } : {}),
-      ...(options.ignoreBotMessages !== undefined
-        ? { ignoreBotMessages: options.ignoreBotMessages }
-        : {}),
-      ...(options.requireMentionInGuild !== undefined
-        ? { requireMentionInGuild: options.requireMentionInGuild }
-        : {}),
-      ...(options.autoCreateThreadOnMention !== undefined
-        ? { autoCreateThreadOnMention: options.autoCreateThreadOnMention }
-        : {}),
-      ...(options.autoArchiveDurationMinutes !== undefined
-        ? { autoArchiveDurationMinutes: options.autoArchiveDurationMinutes }
-        : {}),
+      api: this.#api,
+      publicKey,
+      botUserId: options.botUserId,
+      ignoreBotMessages: options.ignoreBotMessages,
+      requireMentionInGuild: options.requireMentionInGuild,
+      autoCreateThreadOnMention: options.autoCreateThreadOnMention,
+      autoArchiveDurationMinutes: options.autoArchiveDurationMinutes,
     });
 
     const enableGateway = options.enableGateway ?? Boolean(botToken);
@@ -200,17 +184,13 @@ export class DiscordConnector<TName extends string = "discord"> implements Conne
         botToken,
         api: this.#api,
         intents: options.intents ?? DISCORD_DEFAULT_INTENTS,
-        ...(options.gatewayUrl !== undefined ? { gatewayUrl: options.gatewayUrl } : {}),
-        ...(options.botUserId !== undefined ? { botUserId: options.botUserId } : {}),
-        ...(options.shard !== undefined ? { shard: options.shard } : {}),
-        ...(options.createWebSocket !== undefined
-          ? { createWebSocket: options.createWebSocket }
-          : {}),
-        ...(options.reconnectDelaysMs !== undefined
-          ? { reconnectDelaysMs: options.reconnectDelaysMs }
-          : {}),
-        ...(options.randomFn !== undefined ? { randomFn: options.randomFn } : {}),
-        ...(options.logger !== undefined ? { logger: options.logger } : {}),
+        gatewayUrl: options.gatewayUrl,
+        botUserId: options.botUserId,
+        shard: options.shard,
+        createWebSocket: options.createWebSocket,
+        reconnectDelaysMs: options.reconnectDelaysMs,
+        randomFn: options.randomFn,
+        logger: options.logger,
         onMessageCreate: async (message, gatewayCtx) => {
           await this.#receiver.handleMessageCreate(message, gatewayCtx);
         },

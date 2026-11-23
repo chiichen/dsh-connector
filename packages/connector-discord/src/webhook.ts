@@ -290,9 +290,9 @@ export async function handleDiscordInteractionWebhook<TName extends string = "di
     source: "interaction-webhook",
     eventId: interaction.id,
     channelId,
-    ...(interaction.guild_id ? { guildId: interaction.guild_id } : {}),
-    ...(isThread ? { threadId: channelId } : {}),
-    ...(isThread && parentChannelId ? { parentChannelId } : {}),
+    guildId: interaction.guild_id,
+    threadId: isThread ? channelId : undefined,
+    parentChannelId: isThread ? parentChannelId : undefined,
     authorId: invokingUser.id,
     authorName,
     text: cleanedText || `interaction:${interaction.id}`,
@@ -300,19 +300,15 @@ export async function handleDiscordInteractionWebhook<TName extends string = "di
     isDirectMessage,
     isThread,
     mentionedBot: true,
-    ...(interaction.message?.id ? { replyToMessageId: interaction.message.id } : {}),
-    ...(msgMarker
-      ? { referencedText: msgMarker.cleanedContent }
-      : interaction.message?.content
-        ? { referencedText: interaction.message.content }
-        : {}),
+    replyToMessageId: interaction.message?.id,
+    referencedText: msgMarker ? msgMarker.cleanedContent : interaction.message?.content,
     attachments: [],
     timestamp: new Date().toISOString(),
     interactionToken: interaction.token,
     applicationId: interaction.application_id,
     interactionType: interaction.type,
-    ...(interaction.data?.name ? { commandName: interaction.data.name } : {}),
-    ...(interaction.data?.custom_id ? { customId: interaction.data.custom_id } : {}),
+    commandName: interaction.data?.name,
+    customId: interaction.data?.custom_id,
   };
 
   await options.receiverContext.onReceive(context, receiveEvent, {
