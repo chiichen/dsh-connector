@@ -35,6 +35,10 @@ import {
   type PersistedContextRecord,
 } from "./context-store";
 import { ConnectorManager } from "./manager";
+import { createConnectorsFromPlatformConfig } from "./platforms/instantiate";
+import { mergePlatformConfigs } from "./platforms/merge";
+import { platformSettingsSchema } from "./platforms/schema";
+import type { PlatformsConfig } from "./platforms/types";
 import { DshSessionDriver } from "./session-driver";
 import { registerConnectorTools } from "./tool-bridge";
 import { mountConnectorWebhooks } from "./webhook-router";
@@ -65,6 +69,7 @@ export interface ConnectorPluginConfig {
   readonly webhook?: ConnectorPluginWebhookConfig;
   readonly deduplication?: ConnectorPluginDeduplicationConfig;
   readonly logger?: ConnectorLogger;
+  readonly platforms?: PlatformsConfig;
 }
 
 export const Config: Schema<ConnectorPluginConfig> = Schema.object({
@@ -80,6 +85,7 @@ export const Config: Schema<ConnectorPluginConfig> = Schema.object({
     ttlMs: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_TTL_MS),
     maxEntries: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_MAX_ENTRIES),
   }),
+  platforms: platformSettingsSchema,
 }) as unknown as Schema<ConnectorPluginConfig>;
 
 export interface ConnectorPluginRuntime {
@@ -155,7 +161,10 @@ export async function mountConnectorPlugin(
   });
 
   const manager = new ConnectorManager({
-    connectors: config.connectors ?? [],
+    connectors: [
+      ...createConnectorsFromPlatformConfig(config.platforms),
+      ...(config.connectors ?? []),
+    ],
     contextStore,
     sessionDriver,
     ...(config.contextIdGenerator !== undefined
@@ -259,14 +268,17 @@ export function createConnectorPlugin(defaultConfig: ConnectorPluginConfig): Con
   return {
     name,
     inject,
-    apply: (ctx, overrideConfig) =>
-      apply(ctx, {
+    apply: (ctx, overrideConfig) => {
+      const platforms = mergePlatformConfigs(defaultConfig.platforms, overrideConfig?.platforms);
+      return apply(ctx, {
         ...defaultConfig,
         ...overrideConfig,
         ...(defaultConfig.webhook !== undefined || overrideConfig?.webhook !== undefined
           ? { webhook: { ...defaultConfig.webhook, ...overrideConfig?.webhook } }
           : {}),
-      }),
+        ...(platforms !== undefined ? { platforms } : {}),
+      });
+    },
   };
 }
 
@@ -315,6 +327,10 @@ export {
   mountConnectorWebhooks,
   type WebhookRouterOptions,
 } from "./webhook-router";
+export { createConnectorsFromPlatformConfig } from "./platforms/instantiate";
+export { mergePlatformConfigs } from "./platforms/merge";
+export { platformSettingsSchema } from "./platforms/schema";
+export { PLATFORM_IDS, type PlatformId, type PlatformsConfig } from "./platforms/types";
 export {
   dshJsonSchemaNodeSchema,
   dshObjectJsonSchema,
