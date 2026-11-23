@@ -1,4 +1,16 @@
 export {
+  TelegramApiClient,
+  TelegramRateLimitError,
+  defaultTelegramSleep,
+  type TelegramApiClientOptions,
+  type TelegramGetUpdatesRequest,
+  type TelegramRateLimitErrorOptions,
+  type TelegramSendMessageRequest,
+} from "./api-client";
+
+export { splitTelegramMessageText } from "./chunking";
+
+export {
   CONTENT_TYPE_APPLICATION_JSON,
   DEFAULT_ALLOWED_UPDATES,
   DEFAULT_MAX_RETRY_AFTER_MS,
@@ -25,6 +37,8 @@ export {
   type TelegramResolvedTarget,
   type TelegramTargetScope,
 } from "./context-target";
+
+export { TelegramSender, type TelegramSenderOptions } from "./sender";
 
 export type {
   TelegramChatAction,
@@ -66,3 +80,5 @@ export {
   type TelegramUpdate,
   type TelegramUser,
 } from "./types";
+
+export { assertValidWebhookSecretToken, verifyTelegramWebhookSecretToken } from "./webhook-auth";
