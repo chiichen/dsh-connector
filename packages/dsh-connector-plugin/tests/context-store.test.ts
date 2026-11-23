@@ -13,6 +13,7 @@ import {
   CONNECTOR_CONTEXT_DOMAIN,
   DefaultContextSessionStore,
   parseContextHashKey,
+  persistedContextRecordSchema,
   toContextHashKey,
 } from "../src/context-store";
 import { TestDshHost } from "./mocks/mock-dsh-host";
@@ -44,6 +45,35 @@ describe("ConnectorContextHashKey codec", () => {
       connectorName: "tapd",
       contextId: "2001--story--10086",
     });
+
+    expect(() => parseContextHashKey("missing-separator")).toThrow(ConnectorValidationError);
+    expect(() => parseContextHashKey("--missing-connector-name")).toThrow(ConnectorValidationError);
+  });
+
+  it("validates PersistedContextRecord schema and rejects invalid connectorName or contextId", () => {
+    expect(
+      persistedContextRecordSchema.safeParse({
+        sessionId: "session-1",
+        connectorName: "tapd",
+        contextId: "story-1",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      persistedContextRecordSchema.safeParse({
+        sessionId: "session-1",
+        connectorName: "Invalid--Name",
+        contextId: "story-1",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      persistedContextRecordSchema.safeParse({
+        sessionId: "session-1",
+        connectorName: "tapd",
+        contextId: "   ",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -86,6 +116,14 @@ describe("DefaultContextSessionStore", () => {
 
     await expect(store.bind("session-1", ctx43)).rejects.toThrow(ConnectorValidationError);
     await expect(store.bind("session-2", ctx42)).rejects.toThrow(ConnectorValidationError);
+    await expect(store.bind("   ", ctx42)).rejects.toThrow(ConnectorValidationError);
+
+    expect(await store.getAllContexts("session-non-existent")).toEqual({});
+    await expect(store.removeSession("session-non-existent")).resolves.toBeUndefined();
+
+    const gen = createDefaultContextIdGenerator();
+    const byStringName = await store.getOrCreateContext("session-by-name", "wecom", gen);
+    expect(byStringName.connectorName).toBe("wecom");
   });
 
   it("coalesces concurrent getOrCreateContext calls into a single generated UUID per (session, connector)", async () => {
@@ -147,5 +185,30 @@ describe("DefaultContextSessionStore", () => {
     expect(await store3.getSessionId(tapdCtx)).toBeUndefined();
     await domain3.close();
     await host3.stop({ keepStorageDir: true });
+  });
+
+  it("closes opened storage domain if hydrating corrupted table entries throws during open()", async () => {
+    const closeSpy = vi.fn(async () => undefined);
+    const corruptedFacility = {
+      open: async () => ({
+        table: () => ({
+          entries: () =>
+            new Map([
+              [
+                "corrupted_key_without_separator",
+                { sessionId: "s1", connectorName: "tapd", contextId: "1" },
+              ],
+            ]).entries(),
+        }),
+        close: closeSpy,
+      }),
+    };
+
+    await expect(
+      DefaultContextSessionStore.open(
+        corruptedFacility as unknown as Parameters<typeof DefaultContextSessionStore.open>[0],
+      ),
+    ).rejects.toThrow(ConnectorValidationError);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 });
