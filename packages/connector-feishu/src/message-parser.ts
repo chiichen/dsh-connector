@@ -231,7 +231,7 @@ function collectCardVisibleText(node: unknown, depth = 0): string {
     return [divText, divFields].filter((p) => p.length > 0).join("\n");
   }
 
-  const containerKeys = ["elements", "columns", "fields", "children"] as const;
+  const containerKeys = ["text", "elements", "columns", "fields", "children"] as const;
   return containerKeys
     .map((k) => collectCardVisibleText(node[k], depth + 1))
     .filter((p) => p.length > 0)
