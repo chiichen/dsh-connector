@@ -204,6 +204,89 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
     }
   });
 
+  it("scopes idempotency keys per context hash without delimiter collisions and re-delivers when a deduplicated session was deleted", async () => {
+    const host = await TestDshHost.start({ useSessionController: true });
+    try {
+      const store = new DefaultContextSessionStore();
+      const sessionDriver = new DshSessionDriver(host.ctx, { defaultCwd: "/tmp/alerts-dedup" });
+      const alerts = new MockAlertIngestConnector();
+
+      const manager = new ConnectorManager({
+        connectors: [alerts],
+        contextStore: store,
+        sessionDriver,
+      });
+      await manager.startAll();
+
+      // 1. Same local idempotencyKey across distinct contexts must NOT drop the second context's event
+      const ctxCpu = await alerts.simulateAlert(
+        { severity: "critical", fingerprint: "cpu-high", message: "CPU 99%" },
+        { idempotencyKey: "local-seq-1" },
+      );
+      const ctxDisk = await alerts.simulateAlert(
+        { severity: "critical", fingerprint: "disk-full", message: "Disk 99%" },
+        { idempotencyKey: "local-seq-1" },
+      );
+
+      expect(ctxCpu.deduplicated).toBe(false);
+      expect(ctxDisk.deduplicated).toBe(false);
+      expect(ctxDisk.sessionId).toMatch(/^session-/);
+      expect(ctxDisk.sessionId).not.toBe(ctxCpu.sessionId);
+      expect(host.prompts).toHaveLength(2);
+
+      // 2. Boundary strings containing "--" in contextId / idempotencyKey must not collide
+      const boundaryA = await alerts.simulateAlert(
+        { severity: "warning", fingerprint: "node", message: "Boundary A" },
+        { idempotencyKey: "sub--1" },
+      );
+      const boundaryB = await alerts.simulateAlert(
+        { severity: "warning", fingerprint: "node--sub", message: "Boundary B" },
+        { idempotencyKey: "1" },
+      );
+      expect(boundaryA.deduplicated).toBe(false);
+      expect(boundaryB.deduplicated).toBe(false);
+      expect(boundaryB.sessionId).not.toBe(boundaryA.sessionId);
+      expect(host.prompts).toHaveLength(4);
+
+      // 3. If the bound session is deleted in DSH UI (or removed from store) within TTL,
+      //    retrying the same idempotencyKey must self-heal instead of returning dead/empty sessionId
+      host.deleteSessionInUi(ctxCpu.sessionId);
+      const redeliveredAfterUiDelete = await alerts.simulateAlert(
+        { severity: "critical", fingerprint: "cpu-high", message: "CPU 99% retry after UI delete" },
+        { idempotencyKey: "local-seq-1" },
+      );
+      expect(redeliveredAfterUiDelete.deduplicated).toBe(false);
+      expect(redeliveredAfterUiDelete.sessionId).toMatch(/^session-/);
+      expect(redeliveredAfterUiDelete.sessionId).not.toBe(ctxCpu.sessionId);
+      expect(host.prompts).toHaveLength(5);
+
+      // Subsequent retry while healed session is alive IS deduplicated against the healed session
+      const dedupAfterHeal = await alerts.simulateAlert(
+        { severity: "critical", fingerprint: "cpu-high", message: "CPU 99% duplicate retry" },
+        { idempotencyKey: "local-seq-1" },
+      );
+      expect(dedupAfterHeal).toEqual({
+        sessionId: redeliveredAfterUiDelete.sessionId,
+        deduplicated: true,
+      });
+      expect(host.prompts).toHaveLength(5);
+
+      // Explicit store.removeSession also invalidates stale dedup behavior instead of returning ""
+      await store.removeSession(redeliveredAfterUiDelete.sessionId);
+      const redeliveredAfterStoreRemove = await alerts.simulateAlert(
+        { severity: "critical", fingerprint: "cpu-high", message: "CPU 99% after store remove" },
+        { idempotencyKey: "local-seq-1" },
+      );
+      expect(redeliveredAfterStoreRemove.deduplicated).toBe(false);
+      expect(redeliveredAfterStoreRemove.sessionId).toMatch(/^session-/);
+      expect(host.prompts).toHaveLength(6);
+
+      await manager.stopAll();
+    } finally {
+      await host.stop();
+    }
+  });
+
   it("rejects duplicate connector names and rolls back started connectors if a subsequent connector fails to start", async () => {
     const host = await TestDshHost.start();
     try {
