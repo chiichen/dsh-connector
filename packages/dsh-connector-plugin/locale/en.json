@@ -2,5 +2,15 @@
   "plugin": {
     "name": "DSH Connector Plugin",
     "description": "Unified external service connector gateway and Agent tool bridge for DeepSeek Harness"
+  },
+  "settings": {
+    "section": "Connectors",
+    "enable": "Enable",
+    "save": "Save",
+    "saved": "Saved.",
+    "unavailable": "Connector settings are unavailable because this host did not provide a configuration form.",
+    "defaultOption": "Connector default",
+    "platformList": "Connectors",
+    "enableHint": "Enable this connector to fill in the credentials and options it reads."
   }
 }

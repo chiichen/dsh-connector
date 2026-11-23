@@ -2,5 +2,15 @@
   "plugin": {
     "name": "DSH 外部连接器插件",
     "description": "面向 DeepSeek Harness 的统一外部服务连接器网关与 Agent 工具桥接插件"
+  },
+  "settings": {
+    "section": "连接器",
+    "enable": "启用",
+    "save": "保存",
+    "saved": "已保存。",
+    "unavailable": "宿主没有提供配置表单，连接器设置不可用。",
+    "defaultOption": "使用连接器默认值",
+    "platformList": "连接器",
+    "enableHint": "启用此连接器后，填写它实际读取的凭据和选项。"
   }
 }

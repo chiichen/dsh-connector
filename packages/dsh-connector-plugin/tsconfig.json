@@ -1,7 +1,8 @@
 {
   "extends": "@repo/typescript-config/node-library.json",
-  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts", "tsdown.client.config.ts"],
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "lib": ["ES2024", "DOM"]
   }
 }
