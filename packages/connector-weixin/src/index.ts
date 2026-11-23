@@ -39,6 +39,8 @@ export {
 
 export { splitWeixinText, type SplitWeixinTextOptions } from "./chunker";
 
+export { createWeixinConnector, orderIlinkMessages, WeixinConnector } from "./connector";
+
 export {
   formatWeixinP2pContextId,
   parseWeixinTargetFromContextId,
