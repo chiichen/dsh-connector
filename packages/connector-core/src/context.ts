@@ -8,10 +8,15 @@ import type {
   ContextMarkerStyle,
 } from "./types";
 
-const CONNECTOR_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const MIN_CONNECTOR_NAME_LEN = 2;
-const MAX_CONNECTOR_NAME_LEN = 32;
+export const CONNECTOR_CONTEXT_SEPARATOR = "--" as const;
+export const MIN_CONNECTOR_NAME_LEN = 2 as const;
+export const MAX_CONNECTOR_NAME_LEN = 32 as const;
+export const HTML_COMMENT_CONTEXT_PREFIX = "<!-- dsh-ctx:" as const;
+export const HTML_COMMENT_CONTEXT_SUFFIX = " -->" as const;
+export const BRACKET_CONTEXT_PREFIX = "[#ctx:" as const;
+export const BRACKET_CONTEXT_SUFFIX = "]" as const;
 
+const CONNECTOR_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const CONTROL_CHARS_RE = /[\r\n\0]/;
 
 export function isValidConnectorName(name: string): name is ConnectorName {
@@ -19,6 +24,7 @@ export function isValidConnectorName(name: string): name is ConnectorName {
     typeof name === "string" &&
     name.length >= MIN_CONNECTOR_NAME_LEN &&
     name.length <= MAX_CONNECTOR_NAME_LEN &&
+    !name.includes(CONNECTOR_CONTEXT_SEPARATOR) &&
     CONNECTOR_NAME_RE.test(name)
   );
 }
@@ -26,7 +32,7 @@ export function isValidConnectorName(name: string): name is ConnectorName {
 export function assertValidConnectorName(name: string): asserts name is ConnectorName {
   if (!isValidConnectorName(name)) {
     throw new ConnectorValidationError(
-      `Invalid connector name "${name}": must be 2..32 chars matching /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/ (no "--").`,
+      `Invalid connector name "${name}": must be ${MIN_CONNECTOR_NAME_LEN}..${MAX_CONNECTOR_NAME_LEN} chars matching /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/ (no "${CONNECTOR_CONTEXT_SEPARATOR}").`,
       { connectorName: name },
     );
   }
@@ -103,7 +109,9 @@ export function prependContextMarker(
   assertNonEmptyContextId(contextId);
   const encodedToken = escapeMarkerToken(contextId);
   const header =
-    style === "html-comment" ? `<!-- dsh-ctx:${encodedToken} -->` : `[#ctx:${encodedToken}]`;
+    style === "html-comment"
+      ? `${HTML_COMMENT_CONTEXT_PREFIX}${encodedToken}${HTML_COMMENT_CONTEXT_SUFFIX}`
+      : `${BRACKET_CONTEXT_PREFIX}${encodedToken}${BRACKET_CONTEXT_SUFFIX}`;
 
   const lines = content.split("\n");
   const firstLine = lines[0] ?? "";
