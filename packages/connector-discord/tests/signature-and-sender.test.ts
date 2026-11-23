@@ -138,6 +138,31 @@ describe("Stage 2: Ed25519 webhook signature verification & Discord REST v10 Sen
         }),
       ).toBe(true);
 
+      // Default Date.now() path on maxSignatureAgeMs + empty header array
+      const liveTs = String(Math.floor(Date.now() / 1000));
+      const liveSig = keys.signPayload(liveTs, bodyBytes);
+      expect(
+        verifyDiscordInteractionHeaders({
+          publicKeyHex: keys.publicKeyHex,
+          headers: {
+            "x-signature-ed25519": liveSig,
+            "x-signature-timestamp": liveTs,
+          },
+          rawBody: bodyBytes,
+          maxSignatureAgeMs: 60_000,
+        }),
+      ).toBe(true);
+      expect(
+        verifyDiscordInteractionHeaders({
+          publicKeyHex: keys.publicKeyHex,
+          headers: {
+            "x-signature-ed25519": [],
+            "x-signature-timestamp": liveTs,
+          },
+          rawBody: bodyBytes,
+        }),
+      ).toBe(false);
+
       // Expired outside maxSignatureAgeMs
       expect(
         verifyDiscordInteractionHeaders({
@@ -333,11 +358,26 @@ describe("Stage 2: Ed25519 webhook signature verification & Discord REST v10 Sen
         authApi.createMessage({ channelId: "41771983423143937", content: "hi" }),
       ).rejects.toThrow(ConnectorAuthError);
 
-      // Missing botToken on bot route
+      // Missing botToken on bot route vs allowed on token-authenticated @original webhook route
       const tokenlessApi = new DiscordRestClient({
-        fetchFn: vi.fn(async () => jsonResponse({})),
+        fetchFn: vi.fn(async () => jsonResponse(makeMessage())),
       });
       await expect(tokenlessApi.getCurrentUser()).rejects.toThrow(ConnectorAuthError);
+      const editedOrig = await tokenlessApi.editOriginalInteractionResponse({
+        applicationId: "20001",
+        interactionToken: "tok_no_bot",
+        content: "updated without bot token",
+      });
+      expect(editedOrig.id).toBe("900000000000000001");
+
+      // 403 Forbidden on expectBody: false route (triggerTypingIndicator)
+      const forbiddenApi = new DiscordRestClient({
+        botToken: "test-bot-token",
+        fetchFn: vi.fn(async () => jsonResponse({ message: "Missing Access" }, 403)),
+      });
+      await expect(forbiddenApi.triggerTypingIndicator("41771983423143937")).rejects.toThrow(
+        ConnectorAuthError,
+      );
 
       // 502 retryable transport error
       const serverErrApi = new DiscordRestClient({

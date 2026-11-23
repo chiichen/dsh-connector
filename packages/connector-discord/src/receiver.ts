@@ -55,6 +55,10 @@ export interface DiscordReceiverOptions<TName extends string = "discord"> {
   readonly autoArchiveDurationMinutes?: 60 | 1440 | 4320 | 10080;
 }
 
+function formatErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Unknown Discord API error";
+}
+
 function isBotMentionedInMessage(
   message: DiscordApiMessage,
   botUserId: string | undefined,
@@ -62,16 +66,12 @@ function isBotMentionedInMessage(
   if (!botUserId) {
     return false;
   }
-  if (message.mentions?.some((user) => user.id === botUserId)) {
-    return true;
-  }
-  if (message.content.includes(`<@${botUserId}>`) || message.content.includes(`<@!${botUserId}>`)) {
-    return true;
-  }
-  if (message.referenced_message?.author?.id === botUserId) {
-    return true;
-  }
-  return false;
+  return Boolean(
+    message.mentions?.some((user) => user.id === botUserId) ||
+    message.content.includes(`<@${botUserId}>`) ||
+    message.content.includes(`<@!${botUserId}>`) ||
+    message.referenced_message?.author?.id === botUserId,
+  );
 }
 
 function normalizeAttachments(message: DiscordApiMessage): DiscordNormalizedAttachment[] {
@@ -82,13 +82,13 @@ function normalizeAttachments(message: DiscordApiMessage): DiscordNormalizedAtta
     id: att.id,
     filename: att.filename,
     url: att.url,
-    ...(att.content_type ? { contentType: att.content_type } : {}),
-    ...(typeof att.size === "number" ? { size: att.size } : {}),
+    contentType: att.content_type,
+    size: att.size,
   }));
 }
 
 function buildThreadStarterName(cleanText: string, authorName: string): string {
-  const firstLine = cleanText.split(/\r?\n/u)[0]?.trim() ?? "";
+  const firstLine = cleanText.split(/\r?\n/u, 1)[0]!.trim();
   const candidate = firstLine || `Conversation with ${authorName}`;
   return candidate.length <= DISCORD_MAX_THREAD_NAME_LENGTH
     ? candidate
@@ -190,7 +190,7 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
       } catch (err) {
         activeCtx.logger?.debug("Failed to fetch uncached Discord channel metadata", {
           channelId: message.channel_id,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatErrorMessage(err),
         });
       }
     }
@@ -257,9 +257,7 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
           channelId: message.channel_id,
           messageId: message.id,
           name: buildThreadStarterName(cleanText, authorName),
-          ...(this.#autoArchiveDurationMinutes !== undefined
-            ? { autoArchiveDuration: this.#autoArchiveDurationMinutes }
-            : {}),
+          autoArchiveDuration: this.#autoArchiveDurationMinutes,
         });
         gatewayCtx.rememberChannel(createdThread);
         isThread = true;
@@ -272,7 +270,7 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
           {
             channelId: message.channel_id,
             messageId: message.id,
-            error: err instanceof Error ? err.message : String(err),
+            error: formatErrorMessage(err),
           },
         );
       }

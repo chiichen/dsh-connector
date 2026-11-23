@@ -110,6 +110,12 @@ class MockWebSocket implements WebSocketLike {
     }
   }
 
+  serverSendRaw(data: unknown): void {
+    for (const listener of this.#messageListeners) {
+      listener({ data: data as string });
+    }
+  }
+
   serverClose(code: number, reason = ""): void {
     this.readyState = 3;
     for (const listener of this.#closeListeners) {
@@ -117,9 +123,22 @@ class MockWebSocket implements WebSocketLike {
     }
   }
 
+  serverCloseRaw(event: WebSocketCloseEventLike): void {
+    this.readyState = 3;
+    for (const listener of this.#closeListeners) {
+      listener(event);
+    }
+  }
+
   serverError(error: Error): void {
     for (const listener of this.#errorListeners) {
       listener({ error, message: error.message });
+    }
+  }
+
+  serverErrorRaw(event: WebSocketErrorEventLike): void {
+    for (const listener of this.#errorListeners) {
+      listener(event);
     }
   }
 }
@@ -1524,9 +1543,9 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
       );
       expect(dmPrompt.title).toContain("Direct Message");
 
-      // 3. Gateway unknown opcodes/dispatches, empty channel id, send() throwing
+      // 3. Gateway unknown opcodes/dispatches, empty channel id, send() throwing, INVALID_SESSION(true), restart after stop()
       const logger = createSilentLogger();
-      let activeWs: MockWebSocket | undefined;
+      const gwSockets: MockWebSocket[] = [];
       const gw = new DiscordGatewayClient({
         botToken: "tok",
         api: new DiscordRestClient({
@@ -1537,50 +1556,279 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
         }),
         gatewayUrl: "wss://gateway.discord.gg",
         botUserId: "10001",
+        reconnectDelaysMs: [10],
         logger,
         createWebSocket: (url) => {
-          activeWs = new MockWebSocket(url);
-          return activeWs;
+          const s = new MockWebSocket(url);
+          gwSockets.push(s);
+          return s;
         },
         onMessageCreate: () => undefined,
       });
       gw.rememberChannel({ id: "", type: 0 });
       const gwStart = gw.start();
       await Promise.resolve();
-      activeWs!.serverOpen();
-      // Non-string/non-buffer event data, non-op object, unknown op, unknown dispatch
-      activeWs!.serverSend({ op: 99, d: {} });
-      activeWs!.serverSend("{}");
-      activeWs!.serverSend({
+      const activeWs = gwSockets[0]!;
+      activeWs.serverOpen();
+      activeWs.serverErrorRaw({});
+      // Non-string/non-buffer event data, non-op object, unknown op, unknown dispatch, null s/t, malformed dispatch data
+      activeWs.serverSendRaw(42);
+      activeWs.serverSend({ op: 99, d: {} });
+      activeWs.serverSend("{}");
+      activeWs.serverSend({
         op: DISCORD_GATEWAY_OPCODES.HELLO,
         d: { heartbeat_interval: 30_000 },
       });
-      activeWs!.serverSend({
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, s: null, t: null, d: null });
+      activeWs.serverSend({
         op: DISCORD_GATEWAY_OPCODES.DISPATCH,
-        s: 1,
         t: "PRESENCE_UPDATE",
         d: {},
       });
-      activeWs!.serverSend({
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "GUILD_CREATE", d: null });
+      activeWs.serverSend({
         op: DISCORD_GATEWAY_OPCODES.DISPATCH,
-        s: 2,
+        t: "GUILD_CREATE",
+        d: { channels: [null, { id: "", type: 0 }] },
+      });
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "CHANNEL_CREATE", d: {} });
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "THREAD_LIST_SYNC", d: null });
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "CHANNEL_DELETE", d: {} });
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "MESSAGE_CREATE", d: {} });
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.DISPATCH, t: "READY", d: null });
+      activeWs.serverSend({
+        op: DISCORD_GATEWAY_OPCODES.DISPATCH,
+        t: "READY",
+        d: {
+          v: 10,
+          user: { id: "", username: "bot" },
+          session_id: "",
+          resume_gateway_url: "",
+        },
+      });
+      await gwStart;
+
+      // Resumable INVALID_SESSION (d: true) with sequence === null -> sends RESUME with seq: 0
+      activeWs.serverSend({
+        op: DISCORD_GATEWAY_OPCODES.DISPATCH,
         t: "READY",
         d: {
           v: 10,
           user: { id: "10001", username: "bot" },
-          session_id: "s_x",
+          session_id: "sess_keep",
           resume_gateway_url: "wss://gateway.discord.gg",
         },
       });
-      await gwStart;
-      activeWs!.send = () => {
-        throw new Error("broken pipe");
+      activeWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.INVALID_SESSION, d: true });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const resumedWs = gwSockets[1]!;
+      resumedWs.serverOpen();
+      resumedWs.serverSend({
+        op: DISCORD_GATEWAY_OPCODES.HELLO,
+        d: { heartbeat_interval: 30_000 },
+      });
+      expect(resumedWs.sentFrames[0]).toEqual({
+        op: DISCORD_GATEWAY_OPCODES.RESUME,
+        d: { token: "tok", session_id: "sess_keep", seq: 0 },
+      });
+      resumedWs.send = () => {
+        throw "non-error-string";
       };
-      activeWs!.serverSend({ op: DISCORD_GATEWAY_OPCODES.HEARTBEAT, d: null });
+      resumedWs.serverSend({ op: DISCORD_GATEWAY_OPCODES.HEARTBEAT, d: null });
       expect(logger.warn).toHaveBeenCalled();
       await gw.stop();
 
-      // 4. Minimal webhook interactions (no data, command without options, component without values, modal without components)
+      // Late events on closed socket after stop() are ignored safely
+      resumedWs.serverOpen();
+      resumedWs.serverSendRaw("ignored");
+      resumedWs.serverErrorRaw({});
+      resumedWs.serverCloseRaw({});
+
+      // Restarting gateway reuses cached #initialGatewayUrl; close with 4004 & empty reason
+      const restartPromise = gw.start();
+      await Promise.resolve();
+      const wsRestart = gwSockets[2]!;
+      wsRestart.serverCloseRaw({ code: 4004 });
+      await expect(restartPromise).rejects.toThrow(ConnectorAuthError);
+
+      // Fatal 4014 without reason + non-Error thrown in createWebSocket & receiver
+      const emptyReasonGw = new DiscordGatewayClient({
+        botToken: "tok",
+        api: new DiscordRestClient({
+          botToken: "tok",
+          fetchFn: vi.fn(async () => new Response('{"id":"","username":"b"}', { status: 200 })),
+        }),
+        gatewayUrl: "wss://gateway.discord.gg",
+        reconnectDelaysMs: [10],
+        createWebSocket: (() => {
+          let first = true;
+          return (url: string) => {
+            if (first) {
+              first = false;
+              throw "raw-ws-string-error";
+            }
+            const s = new MockWebSocket(url);
+            queueMicrotask(() => s.serverClose(4014, ""));
+            return s;
+          };
+        })(),
+        onMessageCreate: () => undefined,
+      });
+      await expect(emptyReasonGw.start()).rejects.toThrow(ConnectorTransportError);
+
+      // Connector start when botUserId remains empty + receiver with requireMentionInGuild & undefined botUserId + string errors
+      const emptyBotConn = createDiscordConnector({
+        botToken: "tok",
+        gatewayUrl: "wss://gateway.discord.gg",
+        autoCreateThreadOnMention: true,
+        fetchFn: vi.fn(async (input) => {
+          const url = input instanceof URL ? input.href : String(input);
+          if (url.endsWith("/users/@me")) {
+            return new Response('{"id":"","username":"b"}', { status: 200 });
+          }
+          if (url.endsWith("/channels/790099")) {
+            return new Response('{"id":"790099","type":11,"parent_id":null}', { status: 200 });
+          }
+          throw "non-error-network-failure";
+        }),
+        createWebSocket: (url) => {
+          const s = new MockWebSocket(url);
+          queueMicrotask(() => {
+            s.serverOpen();
+            s.serverSend({
+              op: DISCORD_GATEWAY_OPCODES.HELLO,
+              d: { heartbeat_interval: 30_000 },
+            });
+            s.serverSend({
+              op: DISCORD_GATEWAY_OPCODES.DISPATCH,
+              t: "READY",
+              d: {
+                v: 10,
+                user: { id: "", username: "b" },
+                session_id: "s",
+                resume_gateway_url: "",
+              },
+            });
+          });
+          return s;
+        },
+      });
+      await emptyBotConn.getReceiver()!.init!(ctx);
+      await emptyBotConn.start();
+      const emptyBotRec = emptyBotConn.getReceiver() as DiscordReceiver;
+      // DM message when botUserId is undefined -> exercises message.content.trim() path
+      await emptyBotRec.handleMessageCreate(
+        {
+          id: "899000",
+          channel_id: "399001",
+          channel_type: 1,
+          author: { id: "600001", username: "alice" },
+          content: "  direct hello  ",
+          timestamp: "2026-11-23T10:00:00.000Z",
+          type: 0,
+        },
+        {
+          botUserId: undefined,
+          applicationId: undefined,
+          getCachedChannel: () => undefined,
+          rememberChannel: () => undefined,
+        },
+      );
+      const alreadyHasUrlPrompt = emptyBotRec.formatInbound(
+        {
+          source: "gateway-message",
+          eventId: "2",
+          channelId: "399001",
+          authorId: "600001",
+          authorName: "alice",
+          text: "Attachment: https://cdn.discordapp.com/f.png",
+          attachments: [
+            { id: "a9", filename: "f.png", url: "https://cdn.discordapp.com/f.png", size: 1 },
+          ],
+          isDirectMessage: true,
+          isThread: false,
+          timestamp: "2026-11-23T10:00:00.000Z",
+        },
+        createConnectorContext("discord", "dm:399001"),
+      );
+      expect(alreadyHasUrlPrompt.text).toBe("Attachment: https://cdn.discordapp.com/f.png");
+
+      // Guild message with undefined botUserId & requireMentionInGuild: true -> ignored at isBotMentionedInMessage
+      await emptyBotRec.handleMessageCreate(
+        {
+          id: "899001",
+          guild_id: "900001",
+          channel_id: "599001",
+          author: { id: "600001", username: "alice" },
+          content: "hello",
+          timestamp: "2026-11-23T10:00:00.000Z",
+          type: 0,
+        },
+        {
+          botUserId: undefined,
+          applicationId: undefined,
+          getCachedChannel: () => undefined,
+          rememberChannel: () => undefined,
+        },
+      );
+      // Thread with parent_id: null + attachment-only @mention auto-thread failure with string error
+      await emptyBotRec.handleMessageCreate(
+        {
+          id: "899002",
+          guild_id: "900001",
+          channel_id: "790099",
+          channel_type: 11,
+          author: { id: "600001", username: "alice" },
+          content: "in orphan thread",
+          timestamp: "2026-11-23T10:00:00.000Z",
+          type: 0,
+        },
+        {
+          botUserId: "10001",
+          applicationId: undefined,
+          getCachedChannel: () => undefined,
+          rememberChannel: () => undefined,
+        },
+      );
+      await emptyBotRec.handleMessageCreate(
+        {
+          id: "899003",
+          guild_id: "900001",
+          channel_id: "599001",
+          channel_type: 0,
+          author: { id: "600001", username: "alice" },
+          content: "<@10001>",
+          attachments: [
+            { id: "a9", filename: "f.png", url: "https://cdn.discordapp.com/f.png", size: 1 },
+          ],
+          timestamp: "2026-11-23T10:00:00.000Z",
+          type: 0,
+        },
+        {
+          botUserId: "10001",
+          applicationId: undefined,
+          getCachedChannel: () => undefined,
+          rememberChannel: () => undefined,
+        },
+      );
+      const threadNoIdPrompt = emptyBotRec.formatInbound(
+        {
+          source: "gateway-message",
+          eventId: "1",
+          channelId: "790099",
+          authorId: "600001",
+          authorName: "alice",
+          text: "hi",
+          isDirectMessage: false,
+          isThread: true,
+          timestamp: "2026-11-23T10:00:00.000Z",
+        },
+        createConnectorContext("discord", "thread:790099"),
+      );
+      expect(threadNoIdPrompt.title).toContain("Thread 790099");
+      await emptyBotConn.stop();
+
+      // 4. Minimal webhook interactions (no data, nameless command/component/modal, keyless modal inputs, marker-only text)
       const { publicKey, privateKey } = generateKeyPairSync("ed25519");
       const publicKeyHex = Buffer.from(
         publicKey.export({ format: "jwk" }).x ?? "",
@@ -1605,7 +1853,9 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
           token: "t2",
           channel_id: "300001",
           user: { id: "600001", username: "alice" },
-          data: { name: "ping" },
+          data: {
+            options: [{ name: "sub", type: 1, options: [{ name: "leaf", type: 1, options: [] }] }],
+          },
         },
         {
           id: "930003",
@@ -1614,13 +1864,45 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
           token: "t3",
           channel_id: "300001",
           user: { id: "600001", username: "alice" },
-          data: { custom_id: "btn_ok" },
+          data: {},
         },
         {
           id: "930004",
           application_id: "20001",
           type: DISCORD_INTERACTION_TYPES.MODAL_SUBMIT,
           token: "t4",
+          channel_id: "300001",
+          user: { id: "600001", username: "alice" },
+          data: {
+            components: [
+              { type: 4, value: "[#ctx:550e8400-e29b-41d4-a716-446655440000]" },
+              {
+                type: 1,
+                components: [
+                  { type: 4, value: "" },
+                  { type: 3, values: [] },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          id: "930005",
+          application_id: "20001",
+          type: DISCORD_INTERACTION_TYPES.APPLICATION_COMMAND,
+          token: "t5",
+          channel_id: "300001",
+          user: { id: "600001", username: "alice" },
+          data: {
+            name: "   ",
+            options: [],
+          },
+        },
+        {
+          id: "930006",
+          application_id: "20001",
+          type: DISCORD_INTERACTION_TYPES.MODAL_SUBMIT,
+          token: "t6",
           channel_id: "300001",
           user: { id: "600001", username: "alice" },
           data: { custom_id: "empty_modal" },

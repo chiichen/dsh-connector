@@ -69,6 +69,14 @@ export interface DiscordGatewayClientOptions {
   ) => Promise<void> | void;
 }
 
+function formatErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function formatCloseReasonSuffix(reason: string): string {
+  return reason ? `: ${reason}` : "";
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -208,10 +216,8 @@ export class DiscordGatewayClient {
       !this.#channelCache.has(channel.id) &&
       this.#channelCache.size >= DISCORD_CHANNEL_CACHE_MAX_SIZE
     ) {
-      const oldestKey = this.#channelCache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.#channelCache.delete(oldestKey);
-      }
+      const [oldestKey] = this.#channelCache.keys();
+      this.#channelCache.delete(oldestKey!);
     }
     this.#channelCache.set(channel.id, channel);
   }
@@ -248,10 +254,6 @@ export class DiscordGatewayClient {
     } catch (err) {
       this.#running = false;
       throw err;
-    }
-
-    if (!this.#running || currentGen !== this.#generation) {
-      return;
     }
 
     return await new Promise<void>((resolve, reject) => {
@@ -298,12 +300,9 @@ export class DiscordGatewayClient {
   }
 
   #openSocket(expectedGen: number): void {
-    if (!this.#running || expectedGen !== this.#generation || !this.#initialGatewayUrl) {
-      return;
-    }
-
+    const initialUrl = this.#initialGatewayUrl!;
     const targetUrl =
-      this.#sessionId && this.#resumeGatewayUrl ? this.#resumeGatewayUrl : this.#initialGatewayUrl;
+      this.#sessionId && this.#resumeGatewayUrl ? this.#resumeGatewayUrl : initialUrl;
 
     let ws: WebSocketLike;
     try {
@@ -312,7 +311,7 @@ export class DiscordGatewayClient {
       this.#failOrScheduleReconnect(
         expectedGen,
         new ConnectorTransportError(
-          `Failed to create Discord Gateway WebSocket: ${cause instanceof Error ? cause.message : String(cause)}`,
+          `Failed to create Discord Gateway WebSocket: ${formatErrorMessage(cause)}`,
           { connectorName: this.#connectorName, retryable: true, cause },
         ),
       );
@@ -464,9 +463,6 @@ export class DiscordGatewayClient {
 
     this.#heartbeatTimer = setTimeout(() => {
       this.#heartbeatTimer = null;
-      if (!this.#running || expectedGen !== this.#generation || this.#ws !== ws) {
-        return;
-      }
       if (!this.#heartbeatAcked) {
         this.#logger?.warn("Discord Gateway heartbeat ACK timeout; closing zombie socket");
         ws.close(DISCORD_WS_RESUMABLE_RESTART_CLOSE_CODE, "Heartbeat ACK timeout");
@@ -490,7 +486,7 @@ export class DiscordGatewayClient {
       ws.send(JSON.stringify(packet));
     } catch (err) {
       this.#logger?.warn("Failed to send packet to Discord Gateway", {
-        error: err instanceof Error ? err.message : String(err),
+        error: formatErrorMessage(err),
       });
     }
   }
@@ -572,7 +568,7 @@ export class DiscordGatewayClient {
             (err: unknown) => {
               this.#logger?.error("Unhandled error processing Discord MESSAGE_CREATE", {
                 messageId: message.id,
-                error: err instanceof Error ? err.message : String(err),
+                error: formatErrorMessage(err),
               });
             },
           );
@@ -589,7 +585,7 @@ export class DiscordGatewayClient {
       this.#running = false;
       this.#resetSessionState();
       const authError = new ConnectorAuthError(
-        `Discord Gateway authentication failed (close code 4004)${reason ? `: ${reason}` : ""}`,
+        `Discord Gateway authentication failed (close code 4004)${formatCloseReasonSuffix(reason)}`,
         { connectorName: this.#connectorName },
       );
       this.#rejectReadyOrLog(authError);
@@ -600,7 +596,7 @@ export class DiscordGatewayClient {
       this.#running = false;
       this.#resetSessionState();
       const fatalError = new ConnectorTransportError(
-        `Discord Gateway closed with fatal non-recoverable code ${code}${reason ? `: ${reason}` : ""}`,
+        `Discord Gateway closed with fatal non-recoverable code ${code}${formatCloseReasonSuffix(reason)}`,
         { connectorName: this.#connectorName, statusCode: code, retryable: false },
       );
       this.#rejectReadyOrLog(fatalError);
@@ -622,19 +618,13 @@ export class DiscordGatewayClient {
   }
 
   #scheduleReconnect(expectedGen: number): void {
-    if (!this.#running || expectedGen !== this.#generation) {
-      return;
-    }
     this.#clearReconnectTimer();
     const index = Math.min(this.#reconnectAttempt, this.#reconnectDelaysMs.length - 1);
-    const delayMs = this.#reconnectDelaysMs[index] ?? 1_000;
+    const delayMs = this.#reconnectDelaysMs[index]!;
     this.#reconnectAttempt += 1;
 
     this.#reconnectTimer = setTimeout(() => {
       this.#reconnectTimer = null;
-      if (!this.#running || expectedGen !== this.#generation) {
-        return;
-      }
       this.#openSocket(expectedGen);
     }, delayMs);
   }

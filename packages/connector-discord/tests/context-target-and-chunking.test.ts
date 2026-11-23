@@ -286,12 +286,25 @@ describe("Stage 1: Discord protocol constants, schemas, target routing, and mess
         expect(chunk.length).toBeLessThanOrEqual(80);
       }
 
-      const inlineClosedFence = `\`\`\`js\nconst a = 1;\n\`\`\`\n${"tail ".repeat(60)}`;
+      const inlineClosedFence = `\`\`\`js\nconst a = 1;\n\`\`\`info\n\`\`\`\n${"tail ".repeat(60)}`;
       const fenceChunks = splitDiscordMessage(inlineClosedFence, 120);
       expect(fenceChunks.length).toBeGreaterThan(1);
       for (const chunk of fenceChunks) {
         expect(chunk.length).toBeLessThanOrEqual(120);
       }
+
+      // Thread target without parent channelId & invalid 3-part contextId
+      const ctx = createConnectorContext("discord", "channel:111111111111111111");
+      expect(resolveDiscordSendTarget(ctx, { text: "hi", threadId: "333333333333333333" })).toEqual(
+        {
+          kind: "thread",
+          channelId: "333333333333333333",
+          threadId: "333333333333333333",
+          parentChannelId: undefined,
+        },
+      );
+      expect(parseDiscordContextTarget("thread:123456:not-numeric")).toBeUndefined();
+      expect(parseDiscordContextTarget("badprefix:123456:789012")).toBeUndefined();
     });
   });
 });

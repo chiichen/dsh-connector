@@ -44,11 +44,11 @@ export function assertDiscordSnowflake(
   fieldName: string,
   connectorName?: string,
 ): string {
-  const trimmed = typeof value === "string" ? value.trim() : "";
+  const trimmed = value.trim();
   if (!isDiscordSnowflake(trimmed)) {
     throw new ConnectorValidationError(
       `Invalid Discord snowflake for "${fieldName}": expected 1..${DISCORD_MAX_SNOWFLAKE_LENGTH} ASCII digits, got "${value}".`,
-      connectorName !== undefined ? { connectorName } : undefined,
+      { connectorName },
     );
   }
   return trimmed;
@@ -163,7 +163,7 @@ export function resolveDiscordSendTarget<TName extends string>(
       kind: "thread",
       channelId: threadId,
       threadId,
-      ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+      parentChannelId,
     };
   }
 

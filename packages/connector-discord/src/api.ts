@@ -124,7 +124,7 @@ function buildCombinedSignal(signal: AbortSignal | undefined, timeoutMs: number)
 function waitWithSignal(delayMs: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason ?? new Error("Operation aborted"));
+      reject(new Error("Operation aborted"));
       return;
     }
     const timer = setTimeout(resolve, delayMs);
@@ -133,7 +133,7 @@ function waitWithSignal(delayMs: number, signal?: AbortSignal): Promise<void> {
       "abort",
       () => {
         clearTimeout(timer);
-        reject(signal.reason ?? new Error("Operation aborted"));
+        reject(new Error("Operation aborted"));
       },
       { once: true },
     );
@@ -409,7 +409,7 @@ export class DiscordRestClient {
     }
 
     let parsedBody: unknown = undefined;
-    if (expectBody || !response.ok || response.status === HTTP_STATUS_TOO_MANY_REQUESTS) {
+    if (expectBody || !response.ok) {
       try {
         parsedBody = await response.json();
       } catch (cause) {

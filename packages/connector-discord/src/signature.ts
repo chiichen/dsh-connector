@@ -38,19 +38,15 @@ function importRawEd25519PublicKey(publicKeyHex: string): KeyObject | undefined 
   if (trimmed.length !== DISCORD_ED25519_PUBLIC_KEY_HEX_LENGTH || !HEX_STRING_RE.test(trimmed)) {
     return undefined;
   }
-  try {
-    const rawKeyBytes = Buffer.from(trimmed, "hex");
-    return createPublicKey({
-      key: {
-        kty: "OKP",
-        crv: "Ed25519",
-        x: rawKeyBytes.toString("base64url"),
-      },
-      format: "jwk",
-    });
-  } catch {
-    return undefined;
-  }
+  const rawKeyBytes = Buffer.from(trimmed, "hex");
+  return createPublicKey({
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: rawKeyBytes.toString("base64url"),
+    },
+    format: "jwk",
+  });
 }
 
 export function getHeaderFirstValue(
@@ -91,16 +87,12 @@ export function verifyDiscordEd25519Signature(params: VerifyDiscordEd25519Params
     return false;
   }
 
-  try {
-    const messageBuffer = Buffer.concat([
-      Buffer.from(params.timestamp, "utf8"),
-      Buffer.from(params.rawBody),
-    ]);
-    const signatureBuffer = Buffer.from(signatureTrimmed, "hex");
-    return verify(null, messageBuffer, publicKey, signatureBuffer);
-  } catch {
-    return false;
-  }
+  const messageBuffer = Buffer.concat([
+    Buffer.from(params.timestamp, "utf8"),
+    Buffer.from(params.rawBody),
+  ]);
+  const signatureBuffer = Buffer.from(signatureTrimmed, "hex");
+  return verify(null, messageBuffer, publicKey, signatureBuffer);
 }
 
 /**

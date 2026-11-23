@@ -28,9 +28,6 @@ function isLowSurrogate(codeUnit: number): boolean {
  * Adjusts a UTF-16 slice index downwards if it lands between a high and low surrogate pair.
  */
 function safeUtf16Boundary(text: string, index: number): number {
-  if (index <= 0 || index >= text.length) {
-    return Math.max(0, Math.min(index, text.length));
-  }
   const prev = text.charCodeAt(index - 1);
   const curr = text.charCodeAt(index);
   if (isHighSurrogate(prev) && isLowSurrogate(curr)) {
@@ -41,20 +38,10 @@ function safeUtf16Boundary(text: string, index: number): number {
 
 /**
  * Picks a natural split boundary (`\n\n` > `\n` > whitespace > safe UTF-16 code point)
- * within `[1, budget]`.
+ * within `[1, budget]`, assuming `1 <= budget < text.length`.
  */
 function findNaturalSplitIndex(text: string, budget: number): number {
-  if (text.length <= budget) {
-    return text.length;
-  }
   const cappedBudget = safeUtf16Boundary(text, budget);
-  if (cappedBudget <= 0) {
-    return text.length >= 2 &&
-      isHighSurrogate(text.charCodeAt(0)) &&
-      isLowSurrogate(text.charCodeAt(1))
-      ? 2
-      : 1;
-  }
 
   const minPreferredBreak = Math.floor(cappedBudget / 3);
   const window = text.slice(0, cappedBudget);
@@ -94,8 +81,8 @@ function computeOpenFence(initialFence: FenceState | null, chunkBody: string): F
     if (match === null) {
       continue;
     }
-    const backticks = match[1] ?? "```";
-    const info = (match[2] ?? "").trim();
+    const backticks = match[1]!;
+    const info = match[2]!.trim();
     if (active === null) {
       active = {
         marker: backticks,
@@ -146,7 +133,7 @@ export function splitDiscordMessage(
       break;
     }
 
-    const rawBudget: number = Math.max(1, maxLength - reopenPrefix.length - closeReserve);
+    const rawBudget: number = Math.max(2, maxLength - reopenPrefix.length - closeReserve);
     const splitIdx: number = findNaturalSplitIndex(remaining, rawBudget);
     const sliceBody: string = remaining.slice(0, splitIdx);
     const endFence: FenceState | null = computeOpenFence(carriedFence, sliceBody);

@@ -76,7 +76,7 @@ function formatInteractionOptions(
   for (const opt of options) {
     if (opt.options && opt.options.length > 0) {
       const nested = formatInteractionOptions(opt.options);
-      parts.push(nested ? `${opt.name} ${nested}` : opt.name);
+      parts.push(`${opt.name} ${nested}`);
     } else if (opt.value !== undefined) {
       parts.push(`${opt.name}: ${String(opt.value)}`);
     } else {
@@ -86,24 +86,22 @@ function formatInteractionOptions(
   return parts.join(" ");
 }
 
+function formatKeyedValue(key: string | undefined, value: string): string {
+  return key ? `${key}: ${value}` : value;
+}
+
 function extractModalValues(groups: readonly DiscordModalComponentChild[] | undefined): string {
-  if (!groups || groups.length === 0) {
-    return "";
-  }
   const lines: string[] = [];
-  for (const row of groups) {
+  for (const row of groups ?? []) {
     if (typeof row.value === "string" && row.value.trim()) {
-      lines.push(row.custom_id ? `${row.custom_id}: ${row.value.trim()}` : row.value.trim());
+      lines.push(formatKeyedValue(row.custom_id, row.value.trim()));
     }
     if (row.components) {
       for (const field of row.components) {
         if (typeof field.value === "string" && field.value.trim()) {
-          lines.push(
-            field.custom_id ? `${field.custom_id}: ${field.value.trim()}` : field.value.trim(),
-          );
+          lines.push(formatKeyedValue(field.custom_id, field.value.trim()));
         } else if (field.values && field.values.length > 0) {
-          const joined = field.values.join(", ");
-          lines.push(field.custom_id ? `${field.custom_id}: ${joined}` : joined);
+          lines.push(formatKeyedValue(field.custom_id, field.values.join(", ")));
         }
       }
     }
@@ -129,13 +127,9 @@ function extractInteractionText(interaction: DiscordInteraction): string {
     return `[component:${customId}]${selected}`;
   }
 
-  if (interaction.type === DISCORD_INTERACTION_TYPES.MODAL_SUBMIT) {
-    const customId = data.custom_id?.trim() || "modal";
-    const modalText = extractModalValues(data.components);
-    return modalText ? `[modal:${customId}]\n${modalText}` : `[modal:${customId}]`;
-  }
-
-  return `interaction:${interaction.id}`;
+  const customId = data.custom_id?.trim() || "modal";
+  const modalText = extractModalValues(data.components);
+  return modalText ? `[modal:${customId}]\n${modalText}` : `[modal:${customId}]`;
 }
 
 /**
@@ -295,7 +289,7 @@ export async function handleDiscordInteractionWebhook<TName extends string = "di
     parentChannelId: isThread ? parentChannelId : undefined,
     authorId: invokingUser.id,
     authorName,
-    text: cleanedText || `interaction:${interaction.id}`,
+    text: cleanedText,
     rawContent: rawPromptText,
     isDirectMessage,
     isThread,
