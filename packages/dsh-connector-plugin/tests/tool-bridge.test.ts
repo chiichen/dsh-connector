@@ -1,10 +1,12 @@
 import { ToolArgsError, ToolContextUnavailableError } from "@deepseek-ai/dsh-tools";
 import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { ConnectorTransportError, defineConnector } from "@dsh-connector/core";
 import { DefaultContextSessionStore } from "../src/context-store";
 import { ConnectorManager } from "../src/manager";
 import { DshSessionDriver } from "../src/session-driver";
-import { registerConnectorTools } from "../src/tool-bridge";
+import { formatConnectorToolName, registerConnectorTools } from "../src/tool-bridge";
 import {
   MockAlertIngestConnector,
   MockGithubPrConnector,
@@ -80,6 +82,78 @@ describe("registerConnectorTools", () => {
 
       disposeTools();
       expect(host.ctx.tools.definitions()).toHaveLength(0);
+      await manager.stopAll();
+    } finally {
+      await host.stop();
+    }
+  });
+
+  it("supports custom toolNamePrefix, default descriptions, data payloads, render fallbacks, and transport error propagation", async () => {
+    const host = await TestDshHost.start();
+    try {
+      expect(formatConnectorToolName("ops-pager")).toBe("connector_send_ops_pager");
+      expect(formatConnectorToolName("ops-pager", "ext_")).toBe("ext_ops_pager");
+
+      let shouldFailTransport = false;
+      const customConnector = defineConnector({
+        name: "ops-pager",
+        getSender: () => ({
+          schema: z.object({ message: z.string() }),
+          async send(_ctx, params) {
+            if (shouldFailTransport) {
+              throw new ConnectorTransportError("502 upstream gateway error", {
+                statusCode: 502,
+                retryable: true,
+              });
+            }
+            return {
+              data: { echoed: params.message },
+            };
+          },
+        }),
+        getReceiver: () => undefined,
+      });
+
+      const manager = new ConnectorManager({
+        connectors: [customConnector],
+        contextStore: new DefaultContextSessionStore(),
+        sessionDriver: new DshSessionDriver(host.ctx),
+      });
+      await manager.startAll();
+
+      const dispose = registerConnectorTools(host.ctx.tools, manager, {
+        toolNamePrefix: "ext_",
+      });
+
+      const tool = host.ctx.tools.get("ext_ops_pager")!;
+      expect(tool).toBeDefined();
+      expect(tool.description).toBe(
+        'Send a message or action via the "ops-pager" external connector.',
+      );
+
+      const output = (await tool.execute(
+        { message: "ping" },
+        createTestToolRunContext({ sessionId: "session-ops-1" }),
+      )) as Record<string, JsonValue>;
+
+      expect(output).toEqual({
+        ok: true,
+        connector: "ops-pager",
+        summary: 'Delivered via connector "ops-pager".',
+        data: { echoed: "ping" },
+      });
+
+      // Render fallback branches: minimal empty object & non-object scalar JsonValue
+      expect(tool.output.render({}, {})).toEqual([{ type: "text", text: "[ops-pager] Sent." }]);
+      expect(tool.output.render({}, "raw-scalar")).toEqual([{ type: "text", text: "raw-scalar" }]);
+
+      // Non-validation errors (e.g. ConnectorTransportError) propagate directly without wrapping in ToolArgsError
+      shouldFailTransport = true;
+      await expect(
+        tool.execute({ message: "ping" }, createTestToolRunContext({ sessionId: "session-ops-1" })),
+      ).rejects.toBeInstanceOf(ConnectorTransportError);
+
+      dispose();
       await manager.stopAll();
     } finally {
       await host.stop();

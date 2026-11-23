@@ -1,9 +1,15 @@
-import { SessionId } from "@deepseek-ai/dsh-session";
+import { Context } from "@deepseek-ai/cordis";
+import { SessionId, SessionStore } from "@deepseek-ai/dsh-session";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
+  ConnectorError,
   ConnectorTargetRequiredError,
   ConnectorValidationError,
+  createConnectorContext,
   defineConnector,
+  type ConnectorContext,
+  type ConnectorReceiverContext,
 } from "@dsh-connector/core";
 import { DefaultContextSessionStore } from "../src/context-store";
 import { ConnectorManager } from "../src/manager";
@@ -328,5 +334,196 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
     } finally {
       await host.stop();
     }
+  });
+
+  it("covers ConnectorManager error paths, NOOP_LOGGER, stopAll resilience, plain-string formatInbound, and root Zod errors", async () => {
+    const host = await TestDshHost.start({ useSessionController: true });
+    try {
+      const inboundSchema = z.object({ body: z.string() });
+      let capturedCtx: ConnectorReceiverContext<typeof inboundSchema, "plain-in"> | undefined;
+
+      const plainStringReceiverConnector = defineConnector({
+        name: "plain-in",
+        getSender: () => ({
+          schema: z
+            .object({ text: z.string() })
+            .refine((val) => val.text !== "forbidden", { message: "root-level rejection" }),
+          async send() {
+            return {};
+          },
+        }),
+        getReceiver: () => ({
+          schema: inboundSchema,
+          init(ctx) {
+            capturedCtx = ctx;
+          },
+          formatInbound(params) {
+            return `PLAIN:${params.body}`;
+          },
+        }),
+        stop() {
+          throw new Error("stop explosion");
+        },
+      });
+
+      const alerts = new MockAlertIngestConnector();
+      const manager = new ConnectorManager({
+        connectors: [plainStringReceiverConnector, alerts],
+        contextStore: new DefaultContextSessionStore(),
+        sessionDriver: new DshSessionDriver(host.ctx),
+      });
+
+      expect(manager.getConnector("plain-in")).toBe(plainStringReceiverConnector);
+      expect(manager.getConnector("unknown")).toBeUndefined();
+
+      await manager.startAll();
+      expect(capturedCtx).toBeDefined();
+
+      // Exercise NOOP_LOGGER methods
+      capturedCtx!.logger.debug("noop debug");
+      capturedCtx!.logger.info("noop info");
+      capturedCtx!.logger.warn("noop warn");
+      capturedCtx!.logger.error("noop error");
+
+      // Plain string formatInbound without title creates session without suggestedTitle
+      const delivery = await capturedCtx!.onReceive(
+        createConnectorContext("plain-in", capturedCtx!.allocateContextId()),
+        { body: "hello" },
+      );
+      expect(host.prompts[0]?.text).toBe("PLAIN:hello");
+      expect(host.persistedSessions.get(SessionId(delivery.sessionId))?.title).toBeUndefined();
+
+      // Mismatched connectorName in onReceive
+      await expect(
+        capturedCtx!.onReceive(
+          createConnectorContext("alertmanager", "a-1") as unknown as ConnectorContext<"plain-in">,
+          { body: "x" },
+        ),
+      ).rejects.toThrow(ConnectorValidationError);
+
+      // Invalid inbound payload failing receiver.schema
+      await expect(
+        capturedCtx!.onReceive(createConnectorContext("plain-in", "p-1"), {
+          body: 999,
+        } as unknown as { body: string }),
+      ).rejects.toThrow(ConnectorValidationError);
+
+      // dispatchSend error branches: unknown connector, receive-only connector, empty session, root Zod error
+      await expect(manager.dispatchSend("missing", "s1", {})).rejects.toThrow(ConnectorError);
+      await expect(manager.dispatchSend("alertmanager", "s1", {})).rejects.toThrow(
+        ConnectorValidationError,
+      );
+      await expect(manager.dispatchSend("plain-in", "   ", { text: "ok" })).rejects.toThrow(
+        ConnectorValidationError,
+      );
+      await expect(manager.dispatchSend("plain-in", "s1", { text: "forbidden" })).rejects.toThrow(
+        /<root>: root-level rejection/,
+      );
+
+      // stopAll swallows and logs individual connector stop errors without throwing
+      await expect(manager.stopAll()).resolves.toBeUndefined();
+    } finally {
+      await host.stop();
+    }
+  });
+
+  it("covers DshSessionDriver headless creation, agentDefaultModel getters, steer mode, workspaceId, and exists fallbacks", async () => {
+    const headlessHost = await TestDshHost.start({ useSessionController: false });
+    try {
+      const headlessDriver = new DshSessionDriver(headlessHost.ctx, {
+        defaultCwd: "/tmp/headless",
+      });
+
+      // Headless createSession before agentDefaultModel is registered (agentOptions === undefined)
+      const noModelId = await headlessDriver.createSession();
+      expect(noModelId.startsWith("session-")).toBe(true);
+
+      type DefaultModelService = NonNullable<typeof headlessHost.ctx.agentDefaultModel>;
+      type ModelSelection = ReturnType<DefaultModelService["currentSelection"]>;
+
+      let currentEffort: string | undefined = "high";
+      headlessHost.ctx.provide("agentDefaultModel", true);
+      headlessHost.ctx.agentDefaultModel = {
+        currentSelection: () =>
+          ({
+            provider: "deepseek" as ModelSelection["provider"],
+            model: "deepseek-reasoner" as ModelSelection["model"],
+            ...(currentEffort !== undefined
+              ? {
+                  reasoningEffort: currentEffort as NonNullable<ModelSelection["reasoningEffort"]>,
+                }
+              : {}),
+          }) as ModelSelection,
+      } as DefaultModelService;
+
+      const createdId = await headlessDriver.createSession({
+        suggestedTitle: "  Headless Session  ",
+      });
+      expect(headlessHost.persistedSessions.get(SessionId(createdId))?.title).toBe(
+        "Headless Session",
+      );
+
+      const createdAgent = headlessHost.liveAgents.get(SessionId(createdId))!;
+      expect(createdAgent.options.provider).toBe("deepseek");
+      expect(createdAgent.options.model).toBe("deepseek-reasoner");
+      expect(createdAgent.options.reasoningEffort).toBe("high");
+
+      currentEffort = undefined;
+      expect(createdAgent.options.reasoningEffort).toBeUndefined();
+
+      // Prompt live agent in steer mode directly without resuming
+      await headlessDriver.prompt(createdId, "urgent steer", "steer");
+      expect(headlessHost.prompts[0]).toMatchObject({
+        sessionId: SessionId(createdId),
+        text: "urgent steer",
+        mode: "steer",
+        via: "agent",
+      });
+
+      // exists() hits ctx.sessions.get(id) when agent is absent from ctx.agents
+      headlessHost.liveAgents.delete(SessionId(createdId));
+      expect(await headlessDriver.exists(createdId)).toBe(true);
+
+      // Evict completely to cold storage and prompt while agentDefaultModel IS registered
+      headlessHost.evictLiveAgentToColdStorage(createdId);
+      await headlessDriver.prompt(createdId, "resumed with default model", "queue");
+      expect(headlessHost.prompts[1]?.text).toBe("resumed with default model");
+
+      // Headless createSession when sessionTitle service is absent
+      (headlessHost.ctx as unknown as { sessionTitle: undefined }).sessionTitle = undefined;
+      const untitledId = await headlessDriver.createSession({ suggestedTitle: "Ignored Title" });
+      expect(untitledId.startsWith("session-")).toBe(true);
+    } finally {
+      await headlessHost.stop();
+    }
+
+    // SessionController with workspaceId and blank suggestedTitle
+    const uiHost = await TestDshHost.start({ useSessionController: true });
+    try {
+      let capturedWorkspaceId: string | undefined;
+      const originalCreate = uiHost.ctx.sessionController.create.bind(uiHost.ctx.sessionController);
+      uiHost.ctx.sessionController.create = async (req) => {
+        capturedWorkspaceId = req.workspaceId;
+        return originalCreate(req);
+      };
+
+      const wsDriver = new DshSessionDriver(uiHost.ctx, { workspaceId: "ws-prod" });
+      const wsSessionId = await wsDriver.createSession({ suggestedTitle: "   " });
+      expect(capturedWorkspaceId).toBe("ws-prod");
+      expect(uiHost.persistedSessions.get(SessionId(wsSessionId))?.title).toBeUndefined();
+    } finally {
+      await uiHost.stop();
+    }
+
+    // Minimal Cordis Context without sessionPersistence returns false on exists()
+    const bareCtx = new Context();
+    await bareCtx.plugin(SessionStore);
+    bareCtx.provide("agents", true);
+    bareCtx.agents = {
+      get: () => undefined,
+    } as unknown as typeof bareCtx.agents;
+    const bareDriver = new DshSessionDriver(bareCtx);
+    expect(await bareDriver.exists("session-missing")).toBe(false);
+    await bareCtx.fiber.dispose();
   });
 });
