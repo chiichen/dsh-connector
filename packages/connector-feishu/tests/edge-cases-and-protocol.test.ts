@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConnectorAuthError,
   ConnectorTransportError,
   ConnectorValidationError,
   createConnectorContext,
@@ -14,6 +15,7 @@ import {
   FeishuWsLongConnectionClient,
   applyOutboundContextMarker,
   buildFeishuConversationContextId,
+  buildStreamingCardJsonV2,
   createFeishuConnector,
   decodePbbp2Frame,
   encodePbbp2Frame,
@@ -22,6 +24,7 @@ import {
   parseFeishuMessageReceiveEvent,
   resolveFeishuApiBaseUrl,
   resolveFeishuSendTarget,
+  type FeishuStreamingAdapter,
   type FeishuWebSocketLike,
 } from "../src/index";
 
@@ -814,5 +817,254 @@ describe("WebSocket client, context addressing, and webhook edge cases", () => {
     expect(err500Res.status).toBe(500);
 
     await connector.stop();
+  });
+
+  it("preserves full and minimal thread/message metadata across send, reply, API client errors, and connector options", async () => {
+    let callIdx = 0;
+    const apiFetch = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/auth/v3/tenant_access_token/internal")) {
+        return new Response(
+          JSON.stringify({ code: 0, tenant_access_token: "t-lark", expire: 7200 }),
+          { status: 200 },
+        );
+      }
+      callIdx += 1;
+      // 1st message call: full thread metadata on send
+      if (callIdx === 1) {
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              message_id: "om_send_full",
+              chat_id: "oc_chat_full",
+              root_id: "om_root_1",
+              parent_id: "om_parent_1",
+              thread_id: "omt_thread_1",
+              msg_type: "interactive",
+              create_time: "1710000001000",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      // 2nd message call: minimal metadata on send (message_id only)
+      if (callIdx === 2) {
+        return new Response(JSON.stringify({ code: 0, data: { message_id: "om_send_min" } }), {
+          status: 200,
+        });
+      }
+      // 3rd message call: minimal metadata on reply (message_id only, no chat_id)
+      if (callIdx === 3) {
+        return new Response(JSON.stringify({ code: 0, data: { message_id: "om_reply_min" } }), {
+          status: 200,
+        });
+      }
+      // 4th message call: full metadata on reply
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            message_id: "om_reply_full",
+            chat_id: "oc_reply_chat",
+            root_id: "om_root_2",
+            parent_id: "om_parent_2",
+            thread_id: "omt_thread_2",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    const dummyStreamingAdapter: FeishuStreamingAdapter<"lark-custom"> = {
+      strategy: "cardkit-v1",
+      startStream: async () => ({
+        streamId: "stream_1",
+        strategy: "cardkit-v1",
+        messageId: "om_stream",
+        cardId: "card_1",
+        elementId: "md_1",
+        sequence: 0,
+      }),
+      updateStream: async (h) => h,
+      completeStream: async (h) => h,
+      abortStream: async () => {},
+    };
+
+    const larkConnector = createFeishuConnector({
+      name: "lark-custom",
+      displayName: "Lark Custom",
+      description: "Custom Lark instance",
+      sendDescription: "Send message via Lark",
+      appId: "cli_lark",
+      appSecret: "sec_lark",
+      domain: "lark",
+      botOpenId: "ou_lark_bot",
+      botName: "LarkBot",
+      allowedOpenIds: ["ou_allowed"],
+      groupMentionPolicy: "all",
+      allowAtAllInGroup: true,
+      resolveReplyContextFromParent: false,
+      defaultOutboundFormat: "markdown",
+      contextMarker: "never",
+      requestTimeoutMs: 5_000,
+      tokenRefreshBufferSeconds: 120,
+      wsHandshakeTimeoutMs: 3_000,
+      wsAutoReconnect: false,
+      now: () => 1_710_000_000_000,
+      fetchFn: apiFetch as unknown as typeof fetch,
+      streamingAdapter: dummyStreamingAdapter,
+    });
+
+    expect(larkConnector.name).toBe("lark-custom");
+    expect(larkConnector.displayName).toBe("Lark Custom");
+    expect(larkConnector.description).toBe("Custom Lark instance");
+    expect(larkConnector.getSender().description).toBe("Send message via Lark");
+    expect(larkConnector.getStreamingAdapter()).toBe(dummyStreamingAdapter);
+
+    const abortController = new AbortController();
+    const ctx = createConnectorContext("lark-custom", "p2p:ou_allowed" as ConnectorContextId);
+
+    const fullSendRes = await larkConnector
+      .getSender()
+      .send(ctx, { text: "**bold**", uuid: "dedup-uuid-1" }, { signal: abortController.signal });
+    expect(fullSendRes.msgType).toBe("interactive");
+    expect(fullSendRes.chatId).toBe("oc_chat_full");
+    expect(fullSendRes.rootId).toBe("om_root_1");
+    expect(fullSendRes.parentId).toBe("om_parent_1");
+    expect(fullSendRes.threadId).toBe("omt_thread_1");
+
+    const minSendRes = await larkConnector.getSender().send(ctx, {
+      text: "plain",
+      format: "text",
+    });
+    expect(minSendRes.msgType).toBe("text");
+    expect(minSendRes.chatId).toBeUndefined();
+    expect(minSendRes.rootId).toBeUndefined();
+
+    const minReplyRes = await larkConnector.getSender().send(ctx, {
+      text: "reply minimal",
+      replyToMessageId: "om_target_1",
+    });
+    expect(minReplyRes.repliedToMessageId).toBe("om_target_1");
+    expect(minReplyRes.chatId).toBeUndefined();
+
+    const fullReplyRes = await larkConnector.getSender().send(ctx, {
+      text: "reply full",
+      replyToMessageId: "om_target_2",
+      replyInThread: true,
+      uuid: "dedup-uuid-2",
+    });
+    expect(fullReplyRes.chatId).toBe("oc_reply_chat");
+    expect(fullReplyRes.threadId).toBe("omt_thread_2");
+
+    // Default vs custom buildStreamingCardJsonV2
+    const defaultCard = JSON.parse(buildStreamingCardJsonV2({})) as Record<string, unknown>;
+    expect(defaultCard["header"]).toBeUndefined();
+    const customCard = JSON.parse(
+      buildStreamingCardJsonV2({
+        title: "Generating...",
+        elementId: "el_custom",
+        initialContent: "Step 1",
+        streamingConfig: { print_step: { default: 2 } },
+      }),
+    ) as Record<string, unknown>;
+    expect(customCard["header"]).toBeDefined();
+
+    // API client transport/auth error modes
+    const netErrClient = new FeishuApiClient({
+      appId: "a",
+      appSecret: "b",
+      fetchFn: (async () => {
+        throw new TypeError("network down");
+      }) as typeof fetch,
+    });
+    await expect(netErrClient.getTenantAccessToken()).rejects.toThrow(ConnectorTransportError);
+
+    const badJsonClient = new FeishuApiClient({
+      appId: "a",
+      appSecret: "b",
+      fetchFn: (async () => new Response("<html>502</html>", { status: 502 })) as typeof fetch,
+    });
+    await expect(badJsonClient.getTenantAccessToken()).rejects.toThrow(ConnectorTransportError);
+
+    const arrayJsonClient = new FeishuApiClient({
+      appId: "a",
+      appSecret: "b",
+      fetchFn: (async () => new Response("[]", { status: 200 })) as typeof fetch,
+    });
+    await expect(arrayJsonClient.getTenantAccessToken()).rejects.toThrow(ConnectorTransportError);
+
+    let wsAttempt = 0;
+    const errorMatrixClient = new FeishuApiClient({
+      appId: "cli_matrix",
+      appSecret: "sec_matrix",
+      fetchFn: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/auth/v3/tenant_access_token/internal")) {
+          return new Response(
+            JSON.stringify({ code: 0, tenant_access_token: "t-ok", expire: 7200 }),
+            { status: 200 },
+          );
+        }
+        if (url.includes("/callback/ws/endpoint")) {
+          wsAttempt += 1;
+          if (wsAttempt === 1) {
+            return new Response(JSON.stringify({ code: 10003, msg: "invalid app" }), {
+              status: 401,
+            });
+          }
+          return new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 });
+        }
+        if (url.includes("/bot/v3/info")) {
+          return new Response(JSON.stringify({ code: 0, bot: {} }), { status: 200 });
+        }
+        if (url.includes("/im/v1/messages/om_empty")) {
+          return new Response(JSON.stringify({ code: 0, data: { items: [] } }), { status: 200 });
+        }
+        const reqBody = typeof init?.body === "string" ? init.body : "";
+        if (reqBody.includes("ou_rate_limit")) {
+          return new Response(JSON.stringify({ code: 99991400, msg: "rate limited" }), {
+            status: 429,
+          });
+        }
+        if (reqBody.includes("ou_forbidden")) {
+          return new Response(JSON.stringify({ code: 99991668, msg: "token remained invalid" }), {
+            status: 403,
+          });
+        }
+        return new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 });
+      }) as typeof fetch,
+    });
+
+    await expect(errorMatrixClient.pullWsEndpoint()).rejects.toThrow(ConnectorAuthError);
+    await expect(errorMatrixClient.pullWsEndpoint()).rejects.toThrow(ConnectorTransportError);
+    await expect(errorMatrixClient.getBotInfo()).rejects.toThrow(ConnectorTransportError);
+    expect(await errorMatrixClient.getMessage("om_empty")).toBeUndefined();
+    await expect(
+      errorMatrixClient.sendMessage({
+        receiveIdType: "open_id",
+        receiveId: "ou_rate_limit",
+        msgType: "text",
+        content: '{"text":"x"}',
+      }),
+    ).rejects.toThrow(ConnectorTransportError);
+    await expect(
+      errorMatrixClient.sendMessage({
+        receiveIdType: "open_id",
+        receiveId: "ou_forbidden",
+        msgType: "text",
+        content: '{"text":"x"}',
+      }),
+    ).rejects.toThrow(ConnectorAuthError);
+    await expect(
+      errorMatrixClient.sendMessage({
+        receiveIdType: "open_id",
+        receiveId: "ou_missing_id",
+        msgType: "text",
+        content: '{"text":"x"}',
+      }),
+    ).rejects.toThrow(ConnectorTransportError);
   });
 });
