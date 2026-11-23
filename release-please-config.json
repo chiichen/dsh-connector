@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-component-in-tag": true,
+  "separate-pull-requests": false,
+  "packages": {
+    "packages/connector-core": {
+      "component": "connector-core"
+    },
+    "packages/connector-dingtalk": {
+      "component": "connector-dingtalk"
+    },
+    "packages/connector-discord": {
+      "component": "connector-discord"
+    },
+    "packages/connector-feishu": {
+      "component": "connector-feishu"
+    },
+    "packages/connector-qq": {
+      "component": "connector-qq"
+    },
+    "packages/connector-slack": {
+      "component": "connector-slack"
+    },
+    "packages/connector-telegram": {
+      "component": "connector-telegram"
+    },
+    "packages/connector-wecom": {
+      "component": "connector-wecom"
+    },
+    "packages/connector-weixin": {
+      "component": "connector-weixin"
+    },
+    "packages/connector-whatsapp": {
+      "component": "connector-whatsapp"
+    },
+    "packages/dsh-connector-plugin": {
+      "component": "dsh-connector-plugin"
+    }
+  }
+}

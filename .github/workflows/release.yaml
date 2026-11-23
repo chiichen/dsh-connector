@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# issues: write is required for the autorelease: pending label. release-please
+# uses that label to tell a merged release PR from a normal feature merge.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: publish
+    needs: release-please
+    # A normal push only opens or updates the release PR. Publishing runs when
+    # release-please has just created the GitHub Release for a merged release PR.
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.3
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build
+      - name: Publish released packages to npm and GitHub Packages
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PATHS_RELEASED: ${{ needs.release-please.outputs.paths_released }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          owner="${GITHUB_REPOSITORY%%/*}"
+          umask 077
+          cat > "${HOME}/.npmrc" << EOF
+          //registry.npmjs.org/:_authToken=\${NPM_TOKEN}
+          //npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}
+          @${owner}:registry=https://npm.pkg.github.com
+          EOF
+          node --input-type=module << 'EOF'
+          import { execFileSync } from 'node:child_process'
+          import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs'
+          import { tmpdir } from 'node:os'
+          import { join } from 'node:path'
+
+          const npmRegistry = 'https://registry.npmjs.org'
+          const githubRegistry = 'https://npm.pkg.github.com'
+          const dryRun = process.env.PUBLISH_DRY_RUN === '1'
+
+          const repository = process.env.GITHUB_REPOSITORY ?? ''
+          const owner = repository.split('/')[0]
+          if (!owner) {
+            throw new Error('GITHUB_REPOSITORY must be owner/name')
+          }
+
+          const rawPaths = process.env.PATHS_RELEASED
+          if (!rawPaths) {
+            console.log('paths_released is empty; nothing to publish.')
+            process.exit(0)
+          }
+          const paths = JSON.parse(rawPaths)
+          if (!Array.isArray(paths)) {
+            throw new Error('PATHS_RELEASED must be a JSON array')
+          }
+
+          function assertSafePath(rel) {
+            if (typeof rel !== 'string' || rel === '' || rel.startsWith('/') || rel.includes('\\') || rel.split('/').includes('..')) {
+              throw new Error(`Refusing to publish unexpected path: ${rel}`)
+            }
+          }
+
+          function readPackage(rel) {
+            const file = join(rel, 'package.json')
+            if (!existsSync(file)) return null
+            return JSON.parse(readFileSync(file, 'utf8'))
+          }
+
+          const selected = []
+          for (const rel of paths) {
+            assertSafePath(rel)
+            const pkg = readPackage(rel)
+            if (!pkg) {
+              console.log(`Skipping ${rel}: no package.json`)
+              continue
+            }
+            if (pkg.private === true) {
+              console.log(`Skipping ${rel}: private`)
+              continue
+            }
+            if (typeof pkg.name !== 'string' || pkg.name === '') {
+              throw new Error(`${rel} has no package name`)
+            }
+            selected.push({ dir: rel, name: pkg.name, pkg })
+          }
+
+          function dependencyNames(pkg) {
+            return [
+              ...Object.keys(pkg.dependencies ?? {}),
+              ...Object.keys(pkg.peerDependencies ?? {}),
+              ...Object.keys(pkg.optionalDependencies ?? {}),
+            ]
+          }
+
+          function orderPackages(items) {
+            const byName = new Map(items.map((item) => [item.name, item]))
+            const indegree = new Map(items.map((item) => [item.name, 0]))
+            const dependents = new Map(items.map((item) => [item.name, []]))
+            for (const item of items) {
+              for (const dep of dependencyNames(item.pkg)) {
+                if (!byName.has(dep)) continue
+                dependents.get(dep).push(item.name)
+                indegree.set(item.name, indegree.get(item.name) + 1)
+              }
+            }
+            const queue = items.filter((item) => indegree.get(item.name) === 0).map((item) => item.name)
+            const ordered = []
+            while (queue.length > 0) {
+              const name = queue.shift()
+              ordered.push(byName.get(name))
+              for (const next of dependents.get(name)) {
+                indegree.set(next, indegree.get(next) - 1)
+                if (indegree.get(next) === 0) queue.push(next)
+              }
+            }
+            if (ordered.length !== items.length) {
+              throw new Error('Could not order released packages; dependency cycle')
+            }
+            return ordered
+          }
+
+          // GitHub Packages requires the scope to match the repository owner.
+          // @dsh-connector/connector-discord -> @chiichen/connector-discord
+          // dsh-connector-plugin -> @chiichen/dsh-connector-plugin
+          function githubPackagesName(name) {
+            const scope = `@${owner}/`
+            if (name.startsWith(scope)) return name
+            if (name.startsWith('@')) return scope + name.slice(name.indexOf('/') + 1)
+            return scope + name
+          }
+
+          function run(args, cwd) {
+            if (dryRun) {
+              console.log(`(dry-run) pnpm ${args.join(' ')}  # cwd=${cwd}`)
+              return
+            }
+            execFileSync('pnpm', args, { cwd, stdio: 'inherit' })
+          }
+
+          const ordered = orderPackages(selected)
+          if (ordered.length === 0) {
+            console.log('No publishable packages in paths_released.')
+            process.exit(0)
+          }
+
+          if (!process.env.NPM_TOKEN) {
+            console.log('NPM_TOKEN is not set; skipping npm publish.')
+          } else {
+            for (const item of ordered) {
+              console.log(`Publishing ${item.name} to ${npmRegistry}`)
+              run(
+                ['publish', '--ignore-scripts', '--no-git-checks', '--access', 'public', '--registry', npmRegistry],
+                item.dir,
+              )
+            }
+          }
+
+          for (const item of ordered) {
+            const publishedName = githubPackagesName(item.name)
+            console.log(`Publishing ${item.name} to GitHub Packages as ${publishedName}`)
+            if (dryRun) continue
+            const dest = mkdtempSync(join(tmpdir(), 'github-packages-'))
+            try {
+              run(['pack', '--pack-destination', dest], item.dir)
+              const tarballs = readdirSync(dest).filter((name) => name.endsWith('.tgz'))
+              if (tarballs.length !== 1) {
+                throw new Error(`pnpm pack for ${item.name} produced ${tarballs.length} tarballs`)
+              }
+              execFileSync('tar', ['-xzf', join(dest, tarballs[0]), '-C', dest], { stdio: 'inherit' })
+              const manifestPath = join(dest, 'package', 'package.json')
+              const packed = JSON.parse(readFileSync(manifestPath, 'utf8'))
+              packed.name = publishedName
+              packed.repository = {
+                type: 'git',
+                url: `git+https://github.com/${repository}.git`,
+                directory: item.dir,
+              }
+              packed.publishConfig = {
+                ...(packed.publishConfig ?? {}),
+                access: 'public',
+                registry: githubRegistry,
+              }
+              writeFileSync(manifestPath, `${JSON.stringify(packed, null, 2)}\n`)
+              run(
+                ['publish', '--ignore-scripts', '--no-git-checks', '--access', 'public', '--registry', githubRegistry],
+                join(dest, 'package'),
+              )
+            } finally {
+              rmSync(dest, { recursive: true, force: true })
+            }
+          }
+          EOF
