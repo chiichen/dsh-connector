@@ -1,5 +1,9 @@
-import { assertObjectJsonSchema, type ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
-import { describe, expect, it } from "vitest";
+import {
+  assertObjectJsonSchema,
+  type JsonSchemaNode,
+  type ObjectJsonSchema,
+} from "@deepseek-ai/dsh-tools";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import { ConnectorValidationError } from "@dsh-connector/core";
 import {
@@ -12,7 +16,12 @@ import {
   DEFAULT_WEBHOOK_BASE_PATH,
   DEFAULT_WEBHOOK_MAX_BODY_BYTES,
 } from "../src/constants";
-import { zodToDshJsonSchema } from "../src/zod-json-schema";
+import {
+  dshJsonSchemaNodeSchema,
+  dshObjectJsonSchema,
+  zodToDshJsonSchema,
+  type AssertExactType,
+} from "../src/zod-json-schema";
 
 describe("plugin named constants", () => {
   it("defines non-empty named constants matching DSH storage unit naming rules", () => {
@@ -79,5 +88,72 @@ describe("zodToDshJsonSchema", () => {
     expect(compiled.required).toEqual(["targetId", "message"]);
 
     expect(() => zodToDshJsonSchema(z.string())).toThrow(ConnectorValidationError);
+  });
+
+  it("proves compile-time type equivalence between declarative Zod schemas and @deepseek-ai/dsh-tools types", () => {
+    const assertNodeExact: AssertExactType<
+      z.output<typeof dshJsonSchemaNodeSchema>,
+      JsonSchemaNode
+    > = true;
+    const assertObjectExact: AssertExactType<
+      z.output<typeof dshObjectJsonSchema>,
+      ObjectJsonSchema
+    > = true;
+
+    expect(assertNodeExact).toBe(true);
+    expect(assertObjectExact).toBe(true);
+    expectTypeOf<z.output<typeof dshJsonSchemaNodeSchema>>().toExtend<JsonSchemaNode>();
+    expectTypeOf<JsonSchemaNode>().toExtend<z.output<typeof dshJsonSchemaNodeSchema>>();
+    expectTypeOf<z.output<typeof dshObjectJsonSchema>>().toExtend<ObjectJsonSchema>();
+    expectTypeOf<ObjectJsonSchema>().toExtend<z.output<typeof dshObjectJsonSchema>>();
+  });
+
+  it("declaratively transforms raw z.toJSONSchema output via dshObjectJsonSchema across edge cases", () => {
+    const sharedTag = z.string().min(1).meta({ id: "SharedTag" });
+    const edgeCaseSchema = z.object({
+      bareNullable: z.string().nullable(),
+      primaryTag: sharedTag,
+      backupTag: sharedTag.optional(),
+      mixedLiteral: z.literal(["auto", 0, true]),
+      pair: z.tuple([z.string(), z.number().int()]),
+      samePair: z.tuple([z.string(), z.string()]),
+      keyedMap: z.record(z.enum(["env", "region"]), z.string()),
+    });
+
+    const rawDraftSchema = z.toJSONSchema(edgeCaseSchema, {
+      unrepresentable: "any",
+      reused: "inline",
+    });
+
+    const parsed = dshObjectJsonSchema.parse(rawDraftSchema);
+    expect(() => assertObjectJsonSchema(parsed)).not.toThrow();
+
+    expect(parsed.properties?.["bareNullable"]).toEqual({
+      oneOf: [{ type: "string" }, { type: "null" }],
+    });
+    expect(parsed.properties?.["primaryTag"]).toEqual({
+      type: "string",
+      description: "(minLength: 1)",
+    });
+    expect(parsed.properties?.["mixedLiteral"]).toEqual({
+      oneOf: [
+        { type: "string", const: "auto" },
+        { type: "number", const: 0 },
+        { type: "boolean", const: true },
+      ],
+    });
+    expect(parsed.properties?.["pair"]).toEqual({
+      type: "array",
+      description: "(minItems: 2, maxItems: 2)",
+      items: {
+        oneOf: [{ type: "string" }, { type: "integer" }],
+      },
+    });
+    expect(parsed.properties?.["samePair"]).toEqual({
+      type: "array",
+      description: "(minItems: 2, maxItems: 2)",
+      items: { type: "string" },
+    });
+    expect(parsed.properties?.["keyedMap"]?.additionalProperties).toBe(true);
   });
 });

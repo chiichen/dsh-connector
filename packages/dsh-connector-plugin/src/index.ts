@@ -315,4 +315,11 @@ export {
   mountConnectorWebhooks,
   type WebhookRouterOptions,
 } from "./webhook-router";
-export { zodToDshJsonSchema } from "./zod-json-schema";
+export {
+  dshJsonSchemaNodeSchema,
+  dshObjectJsonSchema,
+  jsonSchemaScalarSchema,
+  jsonSchemaTypeSchema,
+  zodToDshJsonSchema,
+  type AssertExactType,
+} from "./zod-json-schema";
