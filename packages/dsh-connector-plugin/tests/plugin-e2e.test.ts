@@ -3,7 +3,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { afterEach, describe, expect, it } from "vitest";
-import { apply, Config, createConnectorPlugin, inject, mountConnectorPlugin, name } from "../src";
+import { z } from "zod";
+import {
+  CONNECTOR_CORE_VERSION,
+  createDefaultContextIdGenerator,
+  defineConnector,
+  type ConnectorLogger,
+  type ConnectorReceiverContext,
+} from "@dsh-connector/core";
+import {
+  apply,
+  Config,
+  createConnectorPlugin,
+  DefaultContextSessionStore,
+  DSH_CONNECTOR_PLUGIN_VERSION,
+  inject,
+  mountConnectorPlugin,
+  name,
+} from "../src";
 import {
   MockAlertIngestConnector,
   MockGithubPrConnector,
@@ -185,5 +202,144 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
 
     await runtime2.dispose();
     await host2.stop({ keepStorageDir: true });
+  });
+
+  it("covers plugin config options, Cordis logger adapter, mount rollback, idempotent dispose, and fiber mid-mount disposal", async () => {
+    expect(DSH_CONNECTOR_PLUGIN_VERSION).toBe(CONNECTOR_CORE_VERSION);
+
+    const host = await TestDshHost.start({ withWebServer: true });
+    try {
+      // 1. Default mountConnectorPlugin(ctx) + Cordis logger adapter (with and without meta)
+      const emptyRuntime = await mountConnectorPlugin(host.ctx);
+      await emptyRuntime.dispose();
+      // Second dispose is a safe no-op
+      await emptyRuntime.dispose();
+
+      let capturedLogger: ConnectorReceiverContext["logger"] | undefined;
+      const loggerProbeConnector = defineConnector({
+        name: "logger-probe",
+        getSender: () => undefined,
+        getReceiver: () => ({
+          schema: z.object({}),
+          init(ctx) {
+            capturedLogger = ctx.logger;
+          },
+        }),
+      });
+
+      const probeRuntime = await apply(host.ctx, { connectors: [loggerProbeConnector] });
+      expect(capturedLogger).toBeDefined();
+      capturedLogger!.debug("dbg plain");
+      capturedLogger!.debug("dbg meta", { a: 1 });
+      capturedLogger!.info("info plain");
+      capturedLogger!.info("info meta", { a: 1 });
+      capturedLogger!.warn("warn plain");
+      capturedLogger!.warn("warn meta", { a: 1 });
+      capturedLogger!.error("err plain");
+      capturedLogger!.error("err meta", { a: 1 });
+      await probeRuntime.dispose();
+
+      // 2. Explicit contextStore, explicit logger, custom toolNamePrefix, deduplication, workspaceId, webhook disabled
+      const customStore = new DefaultContextSessionStore();
+      const explicitLogger: ConnectorLogger = {
+        debug() {},
+        info() {},
+        warn() {},
+        error() {},
+      };
+      const github = new MockGithubPrConnector();
+      const customRuntime = await mountConnectorPlugin(host.ctx, {
+        connectors: [github],
+        contextStore: customStore,
+        defaultSessionCwd: "/tmp/custom-cwd",
+        workspaceId: "ws-custom",
+        contextIdGenerator: createDefaultContextIdGenerator(),
+        toolNamePrefix: "custom_send_",
+        deduplication: { ttlMs: 5_000, maxEntries: 100 },
+        webhook: { enabled: false },
+        logger: explicitLogger,
+      });
+      expect(customRuntime.contextStore).toBe(customStore);
+      expect(host.ctx.tools.get("custom_send_github")).toBeDefined();
+      await customRuntime.dispose();
+
+      // 3. createConnectorPlugin webhook config merge (basePath + maxBodyBytes)
+      const alerts = new MockAlertIngestConnector();
+      const mergedPlugin = createConnectorPlugin({
+        connectors: [alerts],
+        webhook: { basePath: "/custom-hooks" },
+      });
+      const mergedRuntime = await mergedPlugin.apply(host.ctx, {
+        webhook: { maxBodyBytes: 1024 },
+      });
+      const customChallenge = await fetch(
+        `${host.ctx.webServer.getOrigin()}/custom-hooks/alertmanager?echostr=merged-ok`,
+      );
+      expect(customChallenge.status).toBe(200);
+      expect(await customChallenge.text()).toBe("merged-ok");
+      await mergedRuntime.dispose();
+
+      // 4. mountConnectorPlugin rollback when connector.start() throws
+      const brokenConnector = defineConnector({
+        name: "broken-start",
+        getSender: () => undefined,
+        getReceiver: () => undefined,
+        start() {
+          throw new Error("start failed during mount");
+        },
+      });
+      await expect(
+        mountConnectorPlugin(host.ctx, {
+          connectors: [brokenConnector],
+          contextStore: new DefaultContextSessionStore(),
+          webhook: { enabled: false },
+        }),
+      ).rejects.toThrow("start failed during mount");
+    } finally {
+      await host.stop();
+    }
+
+    // 5. apply() when Cordis context is disposed while async connector start() is still in flight
+    const raceHost = await TestDshHost.start({ withWebServer: false });
+    try {
+      // Default apply(ctx) with no second argument before disposing raceHost
+      const defaultApplyRuntime = await apply(raceHost.ctx);
+      await defaultApplyRuntime.dispose();
+
+      let releaseStart!: () => void;
+      let stoppedAfterRace = false;
+      const slowConnector = defineConnector({
+        name: "slow-mount",
+        getSender: () => undefined,
+        getReceiver: () => undefined,
+        async start() {
+          await new Promise<void>((resolve) => {
+            releaseStart = resolve;
+          });
+        },
+        stop() {
+          stoppedAfterRace = true;
+        },
+      });
+
+      const applyPromise = apply(raceHost.ctx, {
+        connectors: [slowConnector],
+        contextStore: new DefaultContextSessionStore(),
+        webhook: { enabled: false },
+      });
+
+      // Wait briefly so slowConnector.start() is awaiting releaseStart
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      // Dispose raceHost's fiber while apply() is suspended in mountConnectorPlugin -> sets state.disposed = true!
+      const disposeHostPromise = raceHost.ctx.fiber.dispose();
+      releaseStart();
+
+      await applyPromise;
+      await disposeHostPromise;
+      expect(stoppedAfterRace).toBe(true);
+    } finally {
+      await raceHost.stop();
+    }
   });
 });
