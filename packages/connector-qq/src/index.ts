@@ -3,3 +3,8 @@ export * from "./types";
 export * from "./addressing";
 export * from "./auth";
 export * from "./sender";
+export * from "./signature";
+export * from "./streaming";
+export * from "./receiver";
+export * from "./gateway";
+export * from "./connector";

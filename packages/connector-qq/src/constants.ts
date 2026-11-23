@@ -259,6 +259,9 @@ export const QQ_DEFAULT_RECONNECT_DELAYS_MS: readonly number[] = [
   1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
 ] as const;
 
+export const QQ_DEFAULT_HEARTBEAT_INTERVAL_MS = 45_000 as const;
+export const QQ_FALLBACK_RECONNECT_DELAY_MS = 1_000 as const;
+
 export const QQ_CONTEXT_PREFIX_C2C = "c2c:" as const;
 export const QQ_CONTEXT_PREFIX_GROUP = "group:" as const;
 export const QQ_CONTEXT_PREFIX_CHANNEL = "channel:" as const;
