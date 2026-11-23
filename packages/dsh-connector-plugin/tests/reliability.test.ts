@@ -85,4 +85,23 @@ describe("TtlDeduplicator", () => {
     expect(dedup.has("evt-del", 200)).toBe(false);
     expect(dedup.delete("evt-del")).toBe(false);
   });
+
+  it("uses default options, refreshes existing keys on re-record, and prunes expired keys during record", () => {
+    const defaultDedup = new TtlDeduplicator();
+    expect(defaultDedup.checkAndRecord("default-k")).toBe(false);
+    expect(defaultDedup.has("default-k")).toBe(true);
+
+    const shortTtl = new TtlDeduplicator({ ttlMs: 100, maxEntries: 5 });
+    shortTtl.record("stale-1", 10);
+    shortTtl.record("stale-2", 20);
+    shortTtl.record("refreshed", 30);
+    // Re-recording an existing key refreshes its position and expiration
+    shortTtl.record("refreshed", 90);
+
+    // At t = 150, stale-1 (exp 110) and stale-2 (exp 120) are pruned during record(), while refreshed (exp 190) survives
+    shortTtl.record("fresh-3", 150);
+    expect(shortTtl.has("refreshed", 160)).toBe(true);
+    expect(shortTtl.has("fresh-3", 160)).toBe(true);
+    expect(shortTtl.has("stale-1", 160)).toBe(false);
+  });
 });

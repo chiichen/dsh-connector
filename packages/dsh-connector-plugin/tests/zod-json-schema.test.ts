@@ -156,4 +156,106 @@ describe("zodToDshJsonSchema", () => {
     });
     expect(parsed.properties?.["keyedMap"]?.additionalProperties).toBe(true);
   });
+
+  it("handles Draft-07 definitions, cyclic/missing $ref, nested oneOf flattening, null scalars, tuples, and non-record inputs", () => {
+    expect(dshJsonSchemaNodeSchema.safeParse("not-an-object").success).toBe(false);
+
+    const rawDraft07AndEdgeCases = {
+      definitions: {
+        LegacyTag: {
+          type: "string",
+          title: "TagTitle",
+          examples: ["v1"],
+        },
+        RecursiveNode: {
+          type: "object",
+          properties: {
+            self: { $ref: "#/definitions/RecursiveNode" },
+          },
+        },
+        NotARecord: "invalid-def",
+      },
+      properties: {
+        legacyRef: { $ref: "#/definitions/LegacyTag" },
+        cyclicRef: { $ref: "#/definitions/RecursiveNode" },
+        externalRef: { $ref: "urn:external:schema", description: "Unresolved external ref" },
+        missingRef: { $ref: "#/$defs/MissingDef", description: "Missing def" },
+        nonRecordRef: { $ref: "#/definitions/NotARecord" },
+        nestedUnion: {
+          anyOf: [
+            { oneOf: [{ type: "string" }, { type: "number" }] },
+            { type: "string" },
+            "ignored-non-record-branch",
+          ],
+        },
+        explicitOneOfWithMap: {
+          oneOf: [
+            { type: "object", properties: {}, additionalProperties: { type: "string" } },
+            { type: "object", properties: {}, additionalProperties: true },
+            { type: "boolean" },
+          ],
+        },
+        emptyUnion: { anyOf: [] },
+        nullConst: { const: null },
+        typedConst: { type: "string", const: "fixed" },
+        mixedWithNullEnum: { enum: ["on", null] },
+        explicitTypedEnum: { type: "string", enum: ["alpha", "beta"] },
+        openObject: {
+          type: "object",
+          properties: { k: { type: "string" } },
+          additionalProperties: true,
+        },
+        tupleWithRest: {
+          type: "array",
+          prefixItems: [{ type: "string" }],
+          items: { type: "boolean" },
+        },
+        draft07Tuple: {
+          type: "array",
+          items: [{ type: "string" }, { type: "integer" }],
+        },
+        unconstrainedArray: {
+          type: "array",
+        },
+      },
+    };
+
+    const parsed = dshObjectJsonSchema.parse(rawDraft07AndEdgeCases);
+    expect(() => assertObjectJsonSchema(parsed)).not.toThrow();
+
+    expect(parsed.properties?.["legacyRef"]).toEqual({
+      type: "string",
+      title: "TagTitle",
+      examples: ["v1"],
+    });
+    expect(parsed.properties?.["cyclicRef"]?.properties?.["self"]).toEqual({});
+    expect(parsed.properties?.["externalRef"]).toEqual({ description: "Unresolved external ref" });
+    expect(parsed.properties?.["missingRef"]).toEqual({ description: "Missing def" });
+    expect(parsed.properties?.["nonRecordRef"]).toEqual({});
+    expect(parsed.properties?.["nestedUnion"]).toEqual({
+      oneOf: [{ type: "string" }, { type: "number" }, {}],
+    });
+    expect(parsed.properties?.["explicitOneOfWithMap"]?.oneOf).toHaveLength(2);
+    expect(parsed.properties?.["emptyUnion"]).toEqual({});
+    expect(parsed.properties?.["nullConst"]).toEqual({ type: "null", const: null });
+    expect(parsed.properties?.["typedConst"]).toEqual({ type: "string", const: "fixed" });
+    expect(parsed.properties?.["mixedWithNullEnum"]).toEqual({
+      oneOf: [
+        { type: "string", const: "on" },
+        { type: "null", const: null },
+      ],
+    });
+    expect(parsed.properties?.["explicitTypedEnum"]).toEqual({
+      type: "string",
+      enum: ["alpha", "beta"],
+    });
+    expect(parsed.properties?.["openObject"]?.additionalProperties).toBe(true);
+    expect(parsed.properties?.["tupleWithRest"]?.items).toEqual({
+      oneOf: [{ type: "string" }, { type: "boolean" }],
+    });
+    expect(parsed.properties?.["draft07Tuple"]?.items).toEqual({
+      oneOf: [{ type: "string" }, { type: "integer" }],
+    });
+    expect(parsed.properties?.["unconstrainedArray"]).toEqual({ type: "array" });
+  });
 });
