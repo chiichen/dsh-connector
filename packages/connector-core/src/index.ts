@@ -31,7 +31,6 @@ export {
   type ConnectorInboundPrompt,
   type ConnectorLogger,
   type ConnectorName,
-  type ConnectorObjectSchema,
   type ConnectorOnReceive,
   type ConnectorReceiver,
   type ConnectorReceiverContext,

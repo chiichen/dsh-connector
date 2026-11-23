@@ -104,6 +104,35 @@ describe("Connector, ConnectorSender, and ConnectorReceiver contracts", () => {
     expect(res.externalId).toBe("wecom-bot:hi");
   });
 
+  it("supports general z.ZodType schemas on ConnectorSender (such as z.discriminatedUnion or refined schemas)", async () => {
+    const unionSendSchema = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("dm"), userId: z.string(), text: z.string() }),
+      z.object({ kind: z.literal("room"), roomId: z.string(), text: z.string() }),
+    ]);
+
+    const imConnector = defineConnector({
+      name: "im-gateway",
+      getSender: () => ({
+        schema: unionSendSchema,
+        async send(_ctx, params) {
+          return {
+            summary: params.kind === "dm" ? `dm:${params.userId}` : `room:${params.roomId}`,
+          };
+        },
+      }),
+      getReceiver: () => undefined,
+    });
+
+    const list: readonly Connector[] = [imConnector];
+    expect(list).toHaveLength(1);
+
+    const ctx = createConnectorContext(imConnector, "conv-1");
+    const sent = await imConnector
+      .getSender()!
+      .send(ctx, { kind: "dm", userId: "u-1", text: "ping" });
+    expect(sent.summary).toBe("dm:u-1");
+  });
+
   it("enforces nominal-like ConnectorContext<TName> isolation at compile time", () => {
     const tapd = new TapdConnector();
     const tapdCtx = createConnectorContext(tapd, "10086");
