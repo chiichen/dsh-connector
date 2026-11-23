@@ -17,7 +17,12 @@ import {
   type ConnectorSendResult,
   type InboundDeliveryMeta,
 } from "@dsh-connector/core";
-import { toContextHashKey, type ContextSessionStore } from "./context-store";
+import { DEDUP_KEY_LENGTH_DELIMITER } from "./constants";
+import {
+  toContextHashKey,
+  type ConnectorContextHashKey,
+  type ContextSessionStore,
+} from "./context-store";
 import { KeyedSerialQueue, TtlDeduplicator } from "./reliability";
 import type { SessionDriver } from "./session-driver";
 
@@ -56,6 +61,10 @@ function formatZodIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: s
       return `${pathStr}: ${issue.message}`;
     })
     .join("; ");
+}
+
+function buildInboundDedupKey(hashKey: ConnectorContextHashKey, idempotencyKey: string): string {
+  return `${hashKey.length}${DEDUP_KEY_LENGTH_DELIMITER}${hashKey}${CONNECTOR_CONTEXT_SEPARATOR}${idempotencyKey}`;
 }
 
 function renderDefaultInboundEnvelope(
@@ -241,15 +250,10 @@ export class ConnectorManager {
     const hashKey = toContextHashKey(context);
     const dedupKey =
       meta?.idempotencyKey !== undefined && meta.idempotencyKey.length > 0
-        ? `${connector.name}${CONNECTOR_CONTEXT_SEPARATOR}${meta.idempotencyKey}`
+        ? buildInboundDedupKey(hashKey, meta.idempotencyKey)
         : undefined;
 
     return this.inboundQueue.run(hashKey, async () => {
-      if (dedupKey !== undefined && this.deduplicator.has(dedupKey)) {
-        const cachedSession = (await this.contextStore.getSessionIdByHashKey(hashKey)) ?? "";
-        return { sessionId: cachedSession, deduplicated: true };
-      }
-
       let existingSessionId = await this.contextStore.getSessionIdByHashKey(hashKey);
       if (
         existingSessionId !== undefined &&
@@ -257,6 +261,13 @@ export class ConnectorManager {
       ) {
         await this.contextStore.removeSession(existingSessionId);
         existingSessionId = undefined;
+      }
+
+      if (dedupKey !== undefined) {
+        if (existingSessionId !== undefined && this.deduplicator.has(dedupKey)) {
+          return { sessionId: existingSessionId, deduplicated: true };
+        }
+        this.deduplicator.delete(dedupKey);
       }
 
       const rawFormatted = receiver.formatInbound?.(parsed.data, context);

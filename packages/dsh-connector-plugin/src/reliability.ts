@@ -65,6 +65,10 @@ export class TtlDeduplicator {
     }
   }
 
+  delete(key: string): boolean {
+    return this.seen.delete(key);
+  }
+
   /**
    * Returns `true` if `key` was already recorded within TTL; otherwise records it and returns `false`.
    */

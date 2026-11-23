@@ -75,4 +75,14 @@ describe("TtlDeduplicator", () => {
     expect(dedup.has("k2", 40)).toBe(true);
     expect(dedup.has("k3", 40)).toBe(true);
   });
+
+  it("deletes an active key explicitly before TTL expiration", () => {
+    const dedup = new TtlDeduplicator({ ttlMs: 10_000, maxEntries: 10 });
+
+    dedup.record("evt-del", 100);
+    expect(dedup.has("evt-del", 200)).toBe(true);
+    expect(dedup.delete("evt-del")).toBe(true);
+    expect(dedup.has("evt-del", 200)).toBe(false);
+    expect(dedup.delete("evt-del")).toBe(false);
+  });
 });
