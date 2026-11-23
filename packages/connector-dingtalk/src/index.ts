@@ -35,6 +35,24 @@ export {
 } from "./constants";
 
 export {
+  computeDingTalkSignature,
+  DingTalkAccessTokenManager,
+  verifyDingTalkWebhookSignature,
+  type DingTalkAccessTokenManagerOptions,
+  type DingTalkSignatureFailureReason,
+  type DingTalkSignatureVerifyResult,
+  type DingTalkVerifyWebhookOptions,
+} from "./auth";
+
+export {
+  normalizeDingTalkSessionWebhook,
+  SessionWebhookCache,
+  type SessionWebhookCacheOptions,
+} from "./http";
+
+export { DingTalkSender, type DingTalkSenderOptions } from "./sender";
+
+export {
   formatDingTalkCardOpenSpaceId,
   type DingTalkCardCallbackType,
   type DingTalkCardSpaceType,
