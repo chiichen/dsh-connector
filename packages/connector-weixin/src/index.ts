@@ -26,6 +26,17 @@ export {
   WEIXIN_WEBHOOK_ACK_BODY,
 } from "./constants";
 
+export {
+  WeixinApiClient,
+  type IlinkGetUpdatesResult,
+  type IlinkRawMessage,
+  type IlinkRawMessageItem,
+  type SendCustomTextRequest,
+  type SendCustomTypingRequest,
+  type SendTextChunkResponse,
+  type WeixinApiClientOptions,
+} from "./api-client";
+
 export { splitWeixinText, type SplitWeixinTextOptions } from "./chunker";
 
 export {
@@ -33,6 +44,20 @@ export {
   parseWeixinTargetFromContextId,
   resolveWeixinSendTarget,
 } from "./context-target";
+
+export {
+  buildEncryptedWeixinReply,
+  computeWeixinSignature,
+  decodeEncodingAesKey,
+  decryptWeixinCiphertext,
+  encryptWeixinPlaintext,
+  verifyWeixinMsgSignature,
+  verifyWeixinSignature,
+  type BuildEncryptedWeixinReplyOptions,
+  type DecryptedWeixinPayload,
+  type DecryptWeixinCiphertextOptions,
+  type EncryptWeixinPlaintextOptions,
+} from "./crypto";
 
 export { BoundedIdSet } from "./dedup";
 
@@ -50,6 +75,8 @@ export type {
   WeixinTypingCommand,
 } from "./streaming";
 
+export { WeixinAccessTokenManager, type WeixinAccessTokenManagerOptions } from "./token-manager";
+
 export {
   weixinReceiveSchema,
   weixinSendSchema,
@@ -65,3 +92,5 @@ export {
   type WeixinSendResult,
   type WeixinTokenStrategy,
 } from "./types";
+
+export { parseWeixinCallbackBody } from "./xml";

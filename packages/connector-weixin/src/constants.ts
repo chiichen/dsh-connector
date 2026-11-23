@@ -71,6 +71,7 @@ export const WEIXIN_AES_ALGORITHM = "aes-256-cbc" as const;
 export const WEIXIN_SHA1_HEX_LEN = 40 as const;
 export const WEIXIN_ENCRYPT_TYPE_AES = "aes" as const;
 export const WEIXIN_UIN_RANDOM_BYTES = 4 as const;
+export const MAX_UNICODE_CODE_POINT = 0x10ffff as const;
 
 /**
  * Webhook & HTTP transport constants.
