@@ -1,0 +1,12 @@
+# Patch coverage must pass at 80% or above. Project coverage under 90%
+# still passes: the project floor is 80%, the same as patch.
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 0%
+    patch:
+      default:
+        target: 80%
+        threshold: 0%
