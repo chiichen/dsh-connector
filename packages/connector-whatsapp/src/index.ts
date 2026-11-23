@@ -1,3 +1,5 @@
+export { splitWhatsAppText } from "./chunker";
+
 export {
   CONTENT_TYPE_JSON,
   CONTENT_TYPE_TEXT_PLAIN,
@@ -38,6 +40,15 @@ export {
   parseWhatsAppTargetFromContextId,
   SentMessageTracker,
 } from "./context-id";
+
+export { createWhatsAppSender, type WhatsAppSenderConfig } from "./sender";
+
+export {
+  computeWhatsAppSignature,
+  getHeaderCaseInsensitive,
+  verifyHubVerifyToken,
+  verifyWhatsAppSignature,
+} from "./signature";
 
 export {
   buildMarkReadPayload,
