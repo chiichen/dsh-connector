@@ -1,0 +1,96 @@
+export {
+  TelegramApiClient,
+  TelegramRateLimitError,
+  defaultTelegramSleep,
+  type TelegramApiClientOptions,
+  type TelegramGetUpdatesRequest,
+  type TelegramRateLimitErrorOptions,
+  type TelegramSendMessageRequest,
+} from "./api-client";
+
+export { splitTelegramMessageText } from "./chunking";
+
+export { TelegramConnector, createTelegramConnector } from "./connector";
+
+export {
+  CONTENT_TYPE_APPLICATION_JSON,
+  DEFAULT_ALLOWED_UPDATES,
+  DEFAULT_MAX_RETRY_AFTER_MS,
+  DEFAULT_MAX_SEND_RETRIES,
+  DEFAULT_POLL_LIMIT,
+  DEFAULT_POLL_RETRY_BASE_MS,
+  DEFAULT_POLL_RETRY_MAX_MS,
+  DEFAULT_POLL_TIMEOUT_SECONDS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_TELEGRAM_API_BASE_URL,
+  DEFAULT_TELEGRAM_CONNECTOR_NAME,
+  DEFAULT_TELEGRAM_DESCRIPTION,
+  DEFAULT_TELEGRAM_DISPLAY_NAME,
+  TELEGRAM_MAX_MESSAGE_LENGTH,
+  TELEGRAM_WEBHOOK_SECRET_HEADER,
+} from "./constants";
+
+export {
+  formatTelegramContextId,
+  parseTelegramContextTarget,
+  resolveTelegramSendTarget,
+  type ExplicitTelegramTargetParams,
+  type FormatTelegramContextIdInput,
+  type TelegramResolvedTarget,
+  type TelegramTargetScope,
+} from "./context-target";
+
+export {
+  formatTelegramInboundPrompt,
+  normalizeTelegramUpdate,
+  parseRawTelegramUpdate,
+  type NormalizedTelegramInbound,
+  type NormalizeTelegramUpdateOptions,
+} from "./inbound";
+
+export { TelegramReceiver, type TelegramReceiverOptions } from "./receiver";
+
+export { TelegramSender, type TelegramSenderOptions } from "./sender";
+
+export type {
+  TelegramChatAction,
+  TelegramEditMessageTextParams,
+  TelegramMessageGenerationStoppedEvent,
+  TelegramSendChatActionParams,
+  TelegramSendMessageDraftParams,
+  TelegramStreamFinalizeParams,
+  TelegramStreamHandle,
+  TelegramStreamingAdapter,
+  TelegramStreamingMode,
+  TelegramStreamingOptions,
+  TelegramStreamTarget,
+  TelegramStreamUpdatePatch,
+} from "./streaming";
+
+export {
+  telegramReceiveSchema,
+  telegramSendSchema,
+  type TelegramApiEnvelope,
+  type TelegramBotIdentity,
+  type TelegramChat,
+  type TelegramChatType,
+  type TelegramConnectorOptions,
+  type TelegramGroupTriggerMode,
+  type TelegramMessage,
+  type TelegramMessageEntity,
+  type TelegramOffsetStore,
+  type TelegramParseMode,
+  type TelegramPollingOptions,
+  type TelegramRawMessageGenerationStopped,
+  type TelegramReceivePayload,
+  type TelegramResponseParameters,
+  type TelegramSendParams,
+  type TelegramSendResult,
+  type TelegramSleepFn,
+  type TelegramTextQuote,
+  type TelegramTransportMode,
+  type TelegramUpdate,
+  type TelegramUser,
+} from "./types";
+
+export { assertValidWebhookSecretToken, verifyTelegramWebhookSecretToken } from "./webhook-auth";
