@@ -104,6 +104,42 @@ export {
   type SlackSendResult,
 } from "./sender";
 
+export {
+  decodeSlackEntities,
+  parseSlackEventCallback,
+  slackReceiveSchema,
+  stripSlackBotMention,
+  type ParsedSlackEventResult,
+  type SlackChannelType,
+  type SlackEventParseOptions,
+  type SlackIgnoreReason,
+  type SlackInboundEventType,
+  type SlackReceiveParams,
+  type SlackThreadReplyPolicy,
+} from "./event-parser";
+
+export {
+  dispatchSlackEventCallback,
+  handleSlackEventsWebhook,
+  type SlackEventDispatchOutcome,
+  type SlackInboundDispatchConfig,
+  type SlackWebhookHandlerConfig,
+} from "./webhook";
+
+export {
+  SlackSocketModeClient,
+  type SlackSocketModeClientOptions,
+  type SlackWebSocketEventType,
+  type SlackWebSocketLike,
+} from "./socket-mode";
+
+export {
+  createSlackConnector,
+  SlackConnector,
+  type SlackConnectorOptions,
+  type SlackTransportMode,
+} from "./connector";
+
 export type {
   SlackAgentSessionStatus,
   SlackAppendStreamParams,
