@@ -1,4 +1,5 @@
 export {
+  DEFAULT_MAX_PARTICIPATING_THREADS,
   DEFAULT_SLACK_API_BASE_URL,
   DEFAULT_SLACK_CONNECT_TIMEOUT_MS,
   DEFAULT_SLACK_CONNECTOR_NAME,
@@ -72,6 +73,36 @@ export {
   type SlackConversationTarget,
   type SlackSendTargetParams,
 } from "./context-target";
+
+export {
+  computeSlackSignature,
+  verifySlackRequestSignature,
+  type SlackSignatureFailureReason,
+  type SlackSignatureVerificationResult,
+  type VerifySlackSignatureOptions,
+} from "./signature";
+
+export {
+  assertValidSlackAppToken,
+  assertValidSlackBotToken,
+  isValidSlackAppToken,
+  isValidSlackBotToken,
+  sanitizeSlackBroadcastMentions,
+  SlackApiClient,
+  type SlackApiClientOptions,
+  type SlackAuthTestResponse,
+  type SlackOpenConnectionResponse,
+  type SlackPostMessageRequest,
+  type SlackPostMessageResponse,
+} from "./api-client";
+
+export {
+  createSlackSender,
+  slackSendSchema,
+  type CreateSlackSenderOptions,
+  type SlackSendParams,
+  type SlackSendResult,
+} from "./sender";
 
 export type {
   SlackAgentSessionStatus,

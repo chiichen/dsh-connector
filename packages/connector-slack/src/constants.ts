@@ -104,6 +104,8 @@ export const SLACK_MARKDOWN_TEXT_MAX_LENGTH = 12_000 as const;
 
 export const SLACK_RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000, 30_000] as const;
 
+export const DEFAULT_MAX_PARTICIPATING_THREADS = 2_000 as const;
+
 export const SLACK_DEFAULT_RETRY_AFTER_SEC = 1 as const;
 
 export const SLACK_MIN_RETRY_DELAY_MS = 100 as const;
