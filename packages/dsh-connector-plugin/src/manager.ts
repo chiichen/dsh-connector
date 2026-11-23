@@ -1,4 +1,5 @@
 import {
+  CONNECTOR_CONTEXT_SEPARATOR,
   ConnectorError,
   ConnectorValidationError,
   assertNonEmptyContextId,
@@ -240,7 +241,7 @@ export class ConnectorManager {
     const hashKey = toContextHashKey(context);
     const dedupKey =
       meta?.idempotencyKey !== undefined && meta.idempotencyKey.length > 0
-        ? `${connector.name}--${meta.idempotencyKey}`
+        ? `${connector.name}${CONNECTOR_CONTEXT_SEPARATOR}${meta.idempotencyKey}`
         : undefined;
 
     return this.inboundQueue.run(hashKey, async () => {

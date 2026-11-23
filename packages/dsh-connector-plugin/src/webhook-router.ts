@@ -1,26 +1,23 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { WebServer } from "@deepseek-ai/dsh-host-webserver";
 import type { ConnectorLogger, ConnectorWebhookRequest } from "@dsh-connector/core";
-import type { DshWebServerLike } from "./dsh-types";
+import {
+  CONTENT_TYPE_TEXT_PLAIN,
+  DEFAULT_WEBHOOK_BASE_PATH,
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+  HTTP_STATUS_INTERNAL_SERVER_ERROR,
+  HTTP_STATUS_NOT_FOUND,
+  HTTP_STATUS_PAYLOAD_TOO_LARGE,
+  WEBHOOK_OVERFLOW_DRAIN_MULTIPLIER,
+} from "./constants";
 import type { ConnectorManager } from "./manager";
 
-const DEFAULT_BASE_PATH = "/webhooks/connectors";
-const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
+const PLACEHOLDER_URL_ORIGIN = "http://localhost" as const;
 
 export interface WebhookRouterOptions {
   readonly basePath?: string;
   readonly maxBodyBytes?: number;
   readonly logger?: ConnectorLogger;
-}
-
-export interface StandaloneWebhookServerOptions extends WebhookRouterOptions {
-  readonly host?: string;
-  readonly port: number;
-}
-
-export interface StandaloneWebhookServerHandle {
-  readonly port: number;
-  close(): Promise<void>;
 }
 
 class PayloadTooLargeError extends Error {
@@ -51,7 +48,7 @@ async function readBoundedRawBody(req: IncomingMessage, maxBytes: number): Promi
     totalBytes += buf.byteLength;
     if (totalBytes > maxBytes) {
       exceeded = true;
-      if (totalBytes > maxBytes * 4) {
+      if (totalBytes > maxBytes * WEBHOOK_OVERFLOW_DRAIN_MULTIPLIER) {
         break;
       }
       continue;
@@ -91,18 +88,23 @@ export function createWebhookHttpHandler(
   manager: ConnectorManager,
   options?: WebhookRouterOptions,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-  const basePath = normalizeBasePath(options?.basePath ?? DEFAULT_BASE_PATH);
-  const maxBodyBytes = options?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  const basePath = normalizeBasePath(options?.basePath ?? DEFAULT_WEBHOOK_BASE_PATH);
+  const maxBodyBytes = options?.maxBodyBytes ?? DEFAULT_WEBHOOK_MAX_BODY_BYTES;
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       const rawUrl = req.url ?? "/";
-      const parsedUrl = new URL(rawUrl, "http://localhost");
+      const parsedUrl = new URL(rawUrl, PLACEHOLDER_URL_ORIGIN);
       const pathname = parsedUrl.pathname;
 
       const prefixWithSlash = `${basePath}/`;
       if (!pathname.startsWith(prefixWithSlash)) {
-        writeResponse(res, 404, { "content-type": "text/plain; charset=utf-8" }, "Not Found");
+        writeResponse(
+          res,
+          HTTP_STATUS_NOT_FOUND,
+          { "content-type": CONTENT_TYPE_TEXT_PLAIN },
+          "Not Found",
+        );
         return;
       }
 
@@ -114,7 +116,12 @@ export function createWebhookHttpHandler(
       const subPath = slashIndex === -1 ? "/" : remainder.slice(slashIndex);
 
       if (connectorName.length === 0) {
-        writeResponse(res, 404, { "content-type": "text/plain; charset=utf-8" }, "Not Found");
+        writeResponse(
+          res,
+          HTTP_STATUS_NOT_FOUND,
+          { "content-type": CONTENT_TYPE_TEXT_PLAIN },
+          "Not Found",
+        );
         return;
       }
 
@@ -122,8 +129,8 @@ export function createWebhookHttpHandler(
       if (receiver?.handleWebhook === undefined) {
         writeResponse(
           res,
-          404,
-          { "content-type": "text/plain; charset=utf-8" },
+          HTTP_STATUS_NOT_FOUND,
+          { "content-type": CONTENT_TYPE_TEXT_PLAIN },
           `Webhook connector "${connectorName}" not found.`,
         );
         return;
@@ -136,8 +143,8 @@ export function createWebhookHttpHandler(
         if (error instanceof PayloadTooLargeError) {
           writeResponse(
             res,
-            413,
-            { "content-type": "text/plain; charset=utf-8", connection: "close" },
+            HTTP_STATUS_PAYLOAD_TOO_LARGE,
+            { "content-type": CONTENT_TYPE_TEXT_PLAIN, connection: "close" },
             error.message,
           );
           return;
@@ -163,8 +170,8 @@ export function createWebhookHttpHandler(
       if (!res.headersSent) {
         writeResponse(
           res,
-          500,
-          { "content-type": "text/plain; charset=utf-8" },
+          HTTP_STATUS_INTERNAL_SERVER_ERROR,
+          { "content-type": CONTENT_TYPE_TEXT_PLAIN },
           "Internal Server Error",
         );
       } else {
@@ -174,52 +181,21 @@ export function createWebhookHttpHandler(
   };
 }
 
+/**
+ * Mounts connector webhook routes onto DSH's built-in `@deepseek-ai/dsh-host-webserver`
+ * `WebServer` (`ctx.webServer`) as a prefix route.
+ */
 export function mountConnectorWebhooks(
-  webServer: DshWebServerLike,
+  webServer: WebServer,
   manager: ConnectorManager,
   options?: WebhookRouterOptions,
 ): () => void {
-  const basePath = normalizeBasePath(options?.basePath ?? DEFAULT_BASE_PATH);
+  const basePath = normalizeBasePath(options?.basePath ?? DEFAULT_WEBHOOK_BASE_PATH);
   const handler = createWebhookHttpHandler(manager, options);
 
   return webServer.register({
     kind: "prefix",
     path: basePath,
-    auth: "anonymous",
     handler,
   });
-}
-
-export async function createStandaloneWebhookServer(
-  manager: ConnectorManager,
-  options: StandaloneWebhookServerOptions,
-): Promise<StandaloneWebhookServerHandle> {
-  const handler = createWebhookHttpHandler(manager, options);
-  const server = createServer((req, res) => {
-    void handler(req, res);
-  });
-
-  const host = options.host ?? "0.0.0.0";
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port, host, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-
-  const address = server.address() as AddressInfo;
-  return {
-    port: address.port,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((err) => {
-          if (err !== undefined && err !== null) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      }),
-  };
 }

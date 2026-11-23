@@ -1,16 +1,27 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import {
-  ConnectorValidationError,
+  defineDomain,
+  domainTable,
+  type Domain,
+  type DomainFacility,
+  type KvTable,
+} from "@deepseek-ai/dsh-storage-domain";
+import { z } from "zod";
+import {
   assertNonEmptyContextId,
   assertValidConnectorName,
+  CONNECTOR_CONTEXT_SEPARATOR,
+  ConnectorValidationError,
   createConnectorContext,
   type ConnectorContext,
   type ConnectorContextId,
   type ConnectorContextIdGenerator,
   type ConnectorName,
 } from "@dsh-connector/core";
+import {
+  CONNECTOR_STORAGE_DOMAIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_VERSION,
+  CONNECTOR_STORAGE_TABLE_NAME,
+} from "./constants";
 import { KeyedSerialQueue } from "./reliability";
 
 /**
@@ -21,21 +32,21 @@ export type ConnectorContextHashKey = string & { readonly __brand: "ConnectorCon
 export function toContextHashKey(context: ConnectorContext): ConnectorContextHashKey {
   assertValidConnectorName(context.connectorName);
   assertNonEmptyContextId(context.contextId, context.connectorName);
-  return `${context.connectorName}--${context.contextId}` as ConnectorContextHashKey;
+  return `${context.connectorName}${CONNECTOR_CONTEXT_SEPARATOR}${context.contextId}` as ConnectorContextHashKey;
 }
 
 export function parseContextHashKey(hashKey: string): {
   readonly connectorName: ConnectorName;
   readonly contextId: ConnectorContextId;
 } {
-  const sepIndex = hashKey.indexOf("--");
+  const sepIndex = hashKey.indexOf(CONNECTOR_CONTEXT_SEPARATOR);
   if (sepIndex <= 0) {
     throw new ConnectorValidationError(
-      `Invalid ConnectorContextHashKey "${hashKey}": missing "--" delimiter.`,
+      `Invalid ConnectorContextHashKey "${hashKey}": missing "${CONNECTOR_CONTEXT_SEPARATOR}" delimiter.`,
     );
   }
   const connectorName = hashKey.slice(0, sepIndex);
-  const contextId = hashKey.slice(sepIndex + 2);
+  const contextId = hashKey.slice(sepIndex + CONNECTOR_CONTEXT_SEPARATOR.length);
   assertValidConnectorName(connectorName);
   assertNonEmptyContextId(contextId, connectorName);
   return { connectorName, contextId };
@@ -47,111 +58,49 @@ export interface PersistedContextRecord {
   readonly contextId: ConnectorContextId;
 }
 
-export interface ContextStorageAdapter {
-  loadAll(): Promise<ReadonlyMap<ConnectorContextHashKey, PersistedContextRecord>>;
-  put(hashKey: ConnectorContextHashKey, record: PersistedContextRecord): Promise<void>;
-  deleteMany(hashKeys: readonly ConnectorContextHashKey[]): Promise<void>;
-}
-
-export class InMemoryContextStorageAdapter implements ContextStorageAdapter {
-  private readonly records = new Map<ConnectorContextHashKey, PersistedContextRecord>();
-
-  async loadAll(): Promise<ReadonlyMap<ConnectorContextHashKey, PersistedContextRecord>> {
-    return new Map(this.records);
-  }
-
-  async put(hashKey: ConnectorContextHashKey, record: PersistedContextRecord): Promise<void> {
-    this.records.set(hashKey, record);
-  }
-
-  async deleteMany(hashKeys: readonly ConnectorContextHashKey[]): Promise<void> {
-    for (const key of hashKeys) {
-      this.records.delete(key);
-    }
-  }
-}
-
-export class JsonFileContextStorageAdapter implements ContextStorageAdapter {
-  private readonly writeQueue = new KeyedSerialQueue();
-
-  constructor(private readonly filePath: string) {}
-
-  async loadAll(): Promise<ReadonlyMap<ConnectorContextHashKey, PersistedContextRecord>> {
-    let content: string;
+export const persistedContextRecordSchema: z.ZodType<PersistedContextRecord> = z.object({
+  sessionId: z.string().min(1),
+  connectorName: z.string().refine(
+    (val) => {
+      try {
+        assertValidConnectorName(val);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "Invalid connectorName" },
+  ),
+  contextId: z.string().transform((val, ctx) => {
     try {
-      content = await readFile(this.filePath, "utf8");
+      assertNonEmptyContextId(val);
+      return val;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return new Map();
-      }
-      throw error;
+      ctx.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : "Invalid contextId",
+      });
+      return z.NEVER;
     }
+  }),
+});
 
-    const parsed = JSON.parse(content) as Record<string, PersistedContextRecord>;
-    const map = new Map<ConnectorContextHashKey, PersistedContextRecord>();
-    for (const [rawKey, record] of Object.entries(parsed)) {
-      parseContextHashKey(rawKey);
-      map.set(rawKey as ConnectorContextHashKey, record);
-    }
-    return map;
-  }
+/**
+ * Declarative `@deepseek-ai/dsh-storage-domain` specification owned by `dsh-connector-plugin`.
+ * Persisted via DSH's built-in storage hub (`@deepseek-ai/dsh-storage-json` / SQLite).
+ */
+export const CONNECTOR_CONTEXT_DOMAIN = defineDomain({
+  name: CONNECTOR_STORAGE_DOMAIN_NAME,
+  version: CONNECTOR_STORAGE_DOMAIN_VERSION,
+  tables: {
+    [CONNECTOR_STORAGE_TABLE_NAME]: domainTable<ConnectorContextHashKey, PersistedContextRecord>(
+      persistedContextRecordSchema,
+    ),
+  },
+});
 
-  async put(hashKey: ConnectorContextHashKey, record: PersistedContextRecord): Promise<void> {
-    await this.writeQueue.run("file", async () => {
-      const current = new Map(await this.loadAll());
-      current.set(hashKey, record);
-      await this.flushAtomically(current);
-    });
-  }
-
-  async deleteMany(hashKeys: readonly ConnectorContextHashKey[]): Promise<void> {
-    if (hashKeys.length === 0) return;
-    await this.writeQueue.run("file", async () => {
-      const current = new Map(await this.loadAll());
-      for (const key of hashKeys) {
-        current.delete(key);
-      }
-      await this.flushAtomically(current);
-    });
-  }
-
-  private async flushAtomically(
-    records: ReadonlyMap<ConnectorContextHashKey, PersistedContextRecord>,
-  ): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const serialized = JSON.stringify(Object.fromEntries(records), null, 2);
-    const tempFile = `${this.filePath}.tmp-${randomUUID()}`;
-    await writeFile(tempFile, serialized, "utf8");
-    await rename(tempFile, this.filePath);
-  }
-}
-
-export interface DshKvTableLike {
-  entries(): Promise<Iterable<readonly [string, PersistedContextRecord]>>;
-  set(key: string, value: PersistedContextRecord): Promise<void>;
-  delete(key: string): Promise<boolean | void>;
-}
-
-export class DshStorageDomainAdapter implements ContextStorageAdapter {
-  constructor(private readonly table: DshKvTableLike) {}
-
-  async loadAll(): Promise<ReadonlyMap<ConnectorContextHashKey, PersistedContextRecord>> {
-    const map = new Map<ConnectorContextHashKey, PersistedContextRecord>();
-    for (const [rawKey, record] of await this.table.entries()) {
-      parseContextHashKey(rawKey);
-      map.set(rawKey as ConnectorContextHashKey, record);
-    }
-    return map;
-  }
-
-  async put(hashKey: ConnectorContextHashKey, record: PersistedContextRecord): Promise<void> {
-    await this.table.set(hashKey, record);
-  }
-
-  async deleteMany(hashKeys: readonly ConnectorContextHashKey[]): Promise<void> {
-    await Promise.all(hashKeys.map((key) => this.table.delete(key)));
-  }
-}
+export type ConnectorContextDomain = Domain<typeof CONNECTOR_CONTEXT_DOMAIN>;
+export type ConnectorContextKvTable = KvTable<ConnectorContextHashKey, PersistedContextRecord>;
 
 export interface ContextSessionStore {
   getSessionId(context: ConnectorContext): Promise<string | undefined>;
@@ -174,23 +123,34 @@ export class DefaultContextSessionStore implements ContextSessionStore {
   private readonly sessionToContexts = new Map<string, Map<string, ConnectorContext>>();
   private readonly hashKeyToSession = new Map<ConnectorContextHashKey, string>();
   private readonly singleFlight = new KeyedSerialQueue();
-  private readonly adapter: ContextStorageAdapter;
+  private readonly table: ConnectorContextKvTable | undefined;
 
-  constructor(adapter: ContextStorageAdapter = new InMemoryContextStorageAdapter()) {
-    this.adapter = adapter;
+  constructor(table?: ConnectorContextKvTable) {
+    this.table = table;
+    if (table !== undefined) {
+      for (const [rawKey, record] of table.entries()) {
+        parseContextHashKey(rawKey);
+        const ctx = createConnectorContext(record.connectorName, record.contextId);
+        this.insertInMemory(record.sessionId, ctx, rawKey);
+      }
+    }
   }
 
-  static async open(adapter: ContextStorageAdapter): Promise<DefaultContextSessionStore> {
-    const store = new DefaultContextSessionStore(adapter);
-    await store.hydrate();
-    return store;
+  static fromDomain(domain: ConnectorContextDomain): DefaultContextSessionStore {
+    return new DefaultContextSessionStore(domain.table(CONNECTOR_STORAGE_TABLE_NAME));
   }
 
-  private async hydrate(): Promise<void> {
-    const stored = await this.adapter.loadAll();
-    for (const [hashKey, record] of stored.entries()) {
-      const ctx = createConnectorContext(record.connectorName, record.contextId);
-      this.insertInMemory(record.sessionId, ctx, hashKey);
+  static async open(storageDomain: DomainFacility): Promise<{
+    readonly store: DefaultContextSessionStore;
+    readonly domain: ConnectorContextDomain;
+  }> {
+    const domain = await storageDomain.open(CONNECTOR_CONTEXT_DOMAIN);
+    try {
+      const store = DefaultContextSessionStore.fromDomain(domain);
+      return { store, domain };
+    } catch (error) {
+      await domain.close();
+      throw error;
     }
   }
 
@@ -263,12 +223,14 @@ export class DefaultContextSessionStore implements ContextSessionStore {
       );
     }
 
+    if (this.table !== undefined) {
+      await this.table.put(hashKey, {
+        sessionId,
+        connectorName: frozenCtx.connectorName,
+        contextId: frozenCtx.contextId,
+      });
+    }
     this.insertInMemory(sessionId, frozenCtx, hashKey);
-    await this.adapter.put(hashKey, {
-      sessionId,
-      connectorName: frozenCtx.connectorName,
-      contextId: frozenCtx.contextId,
-    });
   }
 
   async getOrCreateContext<const TName extends string>(
@@ -278,7 +240,7 @@ export class DefaultContextSessionStore implements ContextSessionStore {
   ): Promise<ConnectorContext<TName>> {
     const connectorName =
       typeof connectorOrName === "string" ? connectorOrName : connectorOrName.name;
-    const lockKey = `${sessionId}--${connectorName}`;
+    const lockKey = `${sessionId}${CONNECTOR_CONTEXT_SEPARATOR}${connectorName}`;
     return this.singleFlight.run(lockKey, async () => {
       const existing = await this.getContext(sessionId, connectorName);
       if (existing !== undefined) {
@@ -301,10 +263,16 @@ export class DefaultContextSessionStore implements ContextSessionStore {
     const removedHashKeys: ConnectorContextHashKey[] = [];
     for (const ctx of byConnector.values()) {
       const hashKey = toContextHashKey(ctx);
-      this.hashKeyToSession.delete(hashKey);
       removedHashKeys.push(hashKey);
     }
+
+    if (this.table !== undefined && removedHashKeys.length > 0) {
+      await this.table.deleteMany(removedHashKeys);
+    }
+
+    for (const hashKey of removedHashKeys) {
+      this.hashKeyToSession.delete(hashKey);
+    }
     this.sessionToContexts.delete(sessionId);
-    await this.adapter.deleteMany(removedHashKeys);
   }
 }

@@ -2,57 +2,30 @@ import { describe, expect, it } from "vitest";
 import { DefaultContextSessionStore } from "../src/context-store";
 import { ConnectorManager } from "../src/manager";
 import { DshSessionDriver } from "../src/session-driver";
-import { createStandaloneWebhookServer, mountConnectorWebhooks } from "../src/webhook-router";
+import { mountConnectorWebhooks } from "../src/webhook-router";
 import { MockAlertIngestConnector, MockWecomNotifyConnector } from "./mocks/mock-connectors";
-import { MockDshHost } from "./mocks/mock-dsh-host";
+import { TestDshHost } from "./mocks/mock-dsh-host";
 
-describe("webhook-router", () => {
-  it("registers prefix route with auth: 'anonymous' on DSH webServer", async () => {
-    const host = new MockDshHost();
-    const dshCtx = host.createContext();
-    const manager = new ConnectorManager({
-      connectors: [new MockAlertIngestConnector()],
-      contextStore: new DefaultContextSessionStore(),
-      sessionDriver: new DshSessionDriver(dshCtx),
-    });
-    await manager.startAll();
-
-    const dispose = mountConnectorWebhooks(dshCtx.get("webServer")!, manager, {
-      basePath: "/webhooks/connectors",
-    });
-
-    expect(host.registeredRoutes).toHaveLength(1);
-    expect(host.registeredRoutes[0]?.auth).toBe("anonymous");
-    expect(host.registeredRoutes[0]?.kind).toBe("prefix");
-    expect(host.registeredRoutes[0]?.path).toBe("/webhooks/connectors");
-
-    dispose();
-    expect(host.registeredRoutes).toHaveLength(0);
-    await manager.stopAll();
-  });
-
-  it("handles GET challenge (200), POST webhook (202), auth failure (401), unknown connector (404), and body limit (413) over real HTTP", async () => {
-    const host = new MockDshHost();
-    const dshCtx = host.createContext();
+describe("webhook-router over real @deepseek-ai/dsh-host-webserver", () => {
+  it("reuses DSH built-in WebServer for GET challenge (200), POST webhook (202), auth failure (401), unknown connector (404), body limit (413), and route disposal", async () => {
+    const host = await TestDshHost.start({ withWebServer: true });
     const alerts = new MockAlertIngestConnector();
     const wecom = new MockWecomNotifyConnector();
 
     const manager = new ConnectorManager({
       connectors: [alerts, wecom],
       contextStore: new DefaultContextSessionStore(),
-      sessionDriver: new DshSessionDriver(dshCtx, { defaultCwd: "/tmp/http-test" }),
+      sessionDriver: new DshSessionDriver(host.ctx, { defaultCwd: "/tmp/http-test" }),
     });
     await manager.startAll();
 
-    const server = await createStandaloneWebhookServer(manager, {
-      host: "127.0.0.1",
-      port: 0,
+    const disposeRoute = mountConnectorWebhooks(host.ctx.webServer, manager, {
       basePath: "/webhooks/connectors",
       maxBodyBytes: 256,
     });
 
     try {
-      const baseUrl = `http://127.0.0.1:${server.port}/webhooks/connectors`;
+      const baseUrl = `${host.ctx.webServer.getOrigin()}/webhooks/connectors`;
 
       // 1. Synchronous GET Challenge verification (200)
       const challengeRes = await fetch(`${baseUrl}/alertmanager?echostr=challenge-xyz`);
@@ -98,9 +71,14 @@ describe("webhook-router", () => {
         body: "x".repeat(512),
       });
       expect(hugeRes.status).toBe(413);
+
+      // 6. Disposing the route unregisters from WebServer while keeping DSH WebServer alive
+      disposeRoute();
+      const afterDispose = await fetch(`${baseUrl}/alertmanager?echostr=challenge-xyz`);
+      expect(afterDispose.status).toBe(404);
     } finally {
-      await server.close();
       await manager.stopAll();
+      await host.stop();
     }
   });
 });

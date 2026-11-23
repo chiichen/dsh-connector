@@ -48,8 +48,8 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@24.19.2)(happy-dom@21.0.4)(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
       zod:
-        specifier: ^4.3.6
-        version: 4.6.7
+        specifier: 4.6.6
+        version: 4.6.6
 
   packages/dsh-connector-plugin:
     dependencies:
@@ -60,8 +60,8 @@ importers:
         specifier: workspace:*
         version: link:../connector-core
       zod:
-        specifier: ^4.3.6
-        version: 4.6.7
+        specifier: 4.6.6
+        version: 4.6.6
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.1.0
@@ -2400,9 +2400,6 @@ packages:
   zod@4.6.6:
     resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
-  zod@4.6.7:
-    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
-
 snapshots:
 
   '@deepseek-ai/cordis-plugin-group@1.1.0(@deepseek-ai/cordis-plugin-loader@1.1.0)(@deepseek-ai/cordis@4.1.0)':
@@ -4294,5 +4291,3 @@ snapshots:
       '@yuku-toolchain/win32-x64': 0.28.1
 
   zod@4.6.6: {}
-
-  zod@4.6.7: {}

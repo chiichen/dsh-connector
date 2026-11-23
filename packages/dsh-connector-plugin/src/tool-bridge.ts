@@ -1,25 +1,22 @@
+import type { ContentBlock } from "@deepseek-ai/dsh-llm";
+import {
+  ToolArgsError,
+  ToolContextUnavailableError,
+  type ObjectJsonSchema,
+  type ToolsService,
+} from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import {
   ConnectorValidationError,
   type Connector,
   type ConnectorSender,
 } from "@dsh-connector/core";
-import type { ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
-import type { DshToolsServiceLike } from "./dsh-types";
+import { DEFAULT_TOOL_NAME_PREFIX } from "./constants";
 import type { ConnectorManager } from "./manager";
 import { zodToDshJsonSchema } from "./zod-json-schema";
 
 export interface ToolBridgeOptions {
   readonly toolNamePrefix?: string;
-}
-
-class ToolBridgeExecutionError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string, cause?: unknown) {
-    super(message, cause !== undefined ? { cause } : undefined);
-    this.name = "ToolBridgeExecutionError";
-    this.code = code;
-  }
 }
 
 const TOOL_OUTPUT_SCHEMA: ObjectJsonSchema = {
@@ -29,18 +26,21 @@ const TOOL_OUTPUT_SCHEMA: ObjectJsonSchema = {
     connector: { type: "string" },
     externalId: { type: "string" },
     summary: { type: "string" },
-    data: { type: "object", additionalProperties: true },
+    data: { type: "object", properties: {}, additionalProperties: true },
   },
   required: ["ok", "connector", "summary"],
   additionalProperties: false,
 };
 
-export function formatConnectorToolName(connectorName: string, prefix = "connector_send_"): string {
+export function formatConnectorToolName(
+  connectorName: string,
+  prefix: string = DEFAULT_TOOL_NAME_PREFIX,
+): string {
   return `${prefix}${connectorName.replace(/-/g, "_")}`;
 }
 
 function registerSingleConnectorTool(
-  toolsService: DshToolsServiceLike,
+  toolsService: ToolsService,
   manager: ConnectorManager,
   connector: Connector,
   sender: ConnectorSender,
@@ -57,36 +57,33 @@ function registerSingleConnectorTool(
   return toolsService.register({
     name: toolName,
     description,
-    parameters,
+    parameters: { ...parameters },
     output: {
       schema: TOOL_OUTPUT_SCHEMA,
-      render(value: unknown): string {
-        if (typeof value === "object" && value !== null) {
-          const rec = value as Record<string, unknown>;
-          const summary = typeof rec["summary"] === "string" ? rec["summary"] : "Sent.";
+      render(_args: unknown, value: JsonValue): ContentBlock[] {
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+          const summary = typeof value["summary"] === "string" ? value["summary"] : "Sent.";
           const extId =
-            typeof rec["externalId"] === "string" ? ` (externalId: ${rec["externalId"]})` : "";
-          return `[${String(rec["connector"] ?? connector.name)}] ${summary}${extId}`;
+            typeof value["externalId"] === "string" ? ` (externalId: ${value["externalId"]})` : "";
+          const connectorLabel =
+            typeof value["connector"] === "string" ? value["connector"] : connector.name;
+          return [{ type: "text", text: `[${connectorLabel}] ${summary}${extId}` }];
         }
-        return String(value);
+        return [{ type: "text", text: String(value) }];
       },
     },
     async execute(args, exec) {
-      const currentSessionId = exec.agent?.id ?? exec.agent?.session?.id;
+      const currentSessionId = exec.agent?.id;
       if (currentSessionId === undefined || currentSessionId.trim().length === 0) {
-        throw new ToolBridgeExecutionError(
-          "MISSING_SESSION_CONTEXT",
+        throw new ToolContextUnavailableError(
           `Tool "${toolName}" requires an active DSH Agent session identity.`,
         );
       }
 
       try {
-        const result = await manager.dispatchSend(
-          connector.name,
-          currentSessionId,
-          args,
-          exec.signal !== undefined ? { signal: exec.signal } : undefined,
-        );
+        const result = await manager.dispatchSend(connector.name, currentSessionId, args, {
+          signal: exec.signal,
+        });
 
         return {
           ok: true,
@@ -97,7 +94,7 @@ function registerSingleConnectorTool(
         };
       } catch (error) {
         if (error instanceof ConnectorValidationError) {
-          throw new ToolBridgeExecutionError("INVALID_ARGS", error.message, error);
+          throw new ToolArgsError([error.message]);
         }
         throw error;
       }
@@ -106,11 +103,11 @@ function registerSingleConnectorTool(
 }
 
 export function registerConnectorTools(
-  toolsService: DshToolsServiceLike,
+  toolsService: ToolsService,
   manager: ConnectorManager,
   options?: ToolBridgeOptions,
 ): () => void {
-  const prefix = options?.toolNamePrefix ?? "connector_send_";
+  const prefix = options?.toolNamePrefix ?? DEFAULT_TOOL_NAME_PREFIX;
   const disposers: Array<() => void> = [];
 
   for (const { connector, sender } of manager.getSendableEntries()) {

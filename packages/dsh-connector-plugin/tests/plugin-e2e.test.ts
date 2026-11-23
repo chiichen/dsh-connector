@@ -1,21 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SessionId } from "@deepseek-ai/dsh-session";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  apply,
-  createConnectorPlugin,
-  inject,
-  mountConnectorPlugin,
-  name,
-  type PersistedContextRecord,
-} from "../src";
+import { apply, Config, createConnectorPlugin, inject, mountConnectorPlugin, name } from "../src";
 import {
   MockAlertIngestConnector,
   MockGithubPrConnector,
   MockWecomBotConnector,
 } from "./mocks/mock-connectors";
-import { MockDshHost } from "./mocks/mock-dsh-host";
+import { createTestToolRunContext, TestDshHost } from "./mocks/mock-dsh-host";
 
 describe("dsh-connector-plugin Cordis E2E integration", () => {
   const tempDirs: string[] = [];
@@ -26,48 +20,42 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     }
   });
 
-  it("exposes standard Cordis plugin metadata (name, inject, apply) and runs full HTTP + Agent Tool + Quote closed loop", async () => {
+  it("exposes standard Cordis plugin metadata (name, inject, Config, apply) and runs full WebServer + ToolsService + Quote closed loop", async () => {
     expect(name).toBe("dsh-connector-plugin");
-    expect(inject).toEqual(["agents", "sessions", "tools"]);
+    expect(inject).toEqual(["agents", "sessions", "tools", "storageDomain"]);
+    expect(typeof Config).toBe("function");
     expect(typeof apply).toBe("function");
 
-    const host = new MockDshHost();
-    const ctx = host.createContext();
-
+    const host = await TestDshHost.start({ withWebServer: true });
     const github = new MockGithubPrConnector();
     const wecom = new MockWecomBotConnector();
     const alerts = new MockAlertIngestConnector();
 
     const plugin = createConnectorPlugin({
       connectors: [github, wecom, alerts],
-      webhook: {
-        standalone: { host: "127.0.0.1", port: 0 },
-      },
     });
 
-    const runtime = await plugin.apply(ctx);
-    expect(runtime.standaloneWebhookPort).toBeGreaterThan(0);
+    await plugin.apply(host.ctx);
 
-    expect([...host.registeredTools.keys()].sort()).toEqual([
-      "connector_send_github",
-      "connector_send_wecom",
-    ]);
-    expect(host.registeredRoutes).toHaveLength(1);
+    const registeredTools = host.ctx.tools
+      .definitions()
+      .map((def) => def.name)
+      .sort();
+    expect(registeredTools).toEqual(["connector_send_github", "connector_send_wecom"]);
 
-    const ghResp = await fetch(
-      `http://127.0.0.1:${runtime.standaloneWebhookPort}/webhooks/connectors/github/events`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          repo: "deepseek/dsh",
-          prNumber: 88,
-          eventId: "gh-evt-88-1",
-          author: "alice",
-          commentBody: "Investigate pod OOMKilled",
-        }),
-      },
-    );
+    const origin = host.ctx.webServer.getOrigin();
+
+    const ghResp = await fetch(`${origin}/webhooks/connectors/github/events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: "deepseek/dsh",
+        prNumber: 88,
+        eventId: "gh-evt-88-1",
+        author: "alice",
+        commentBody: "Investigate pod OOMKilled",
+      }),
+    });
     expect(ghResp.status).toBe(202);
 
     expect(host.prompts).toHaveLength(1);
@@ -75,18 +63,20 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     expect(sessionId.startsWith("session-")).toBe(true);
     expect(host.persistedSessions.get(sessionId)?.title).toBe("PR deepseek/dsh#88");
 
-    const ghTool = host.registeredTools.get("connector_send_github")!;
-    const wecomTool = host.registeredTools.get("connector_send_wecom")!;
-    const liveAgent = host.liveAgents.get(sessionId)!;
+    const ghTool = host.ctx.tools.get("connector_send_github")!;
+    const wecomTool = host.ctx.tools.get("connector_send_wecom")!;
 
-    await ghTool.execute({ body: "Acknowledge #88, investigating now." }, { agent: liveAgent });
+    await ghTool.execute(
+      { body: "Acknowledge #88, investigating now." },
+      createTestToolRunContext({ sessionId }),
+    );
     await ghTool.execute(
       { repo: "deepseek/dsh", prNumber: 89, body: "Linking related incident #89." },
-      { agent: liveAgent },
+      createTestToolRunContext({ sessionId }),
     );
     await wecomTool.execute(
       { text: "Alerting SRE channel: investigating GitHub #88." },
-      { agent: liveAgent },
+      createTestToolRunContext({ sessionId }),
     );
 
     expect(github.postedComments).toHaveLength(2);
@@ -104,20 +94,17 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     const wecomWireText = wecom.sentMessages[0]!.wireText;
     expect(wecomWireText).toContain("<!-- dsh-ctx:");
 
-    const wecomQuoteResp = await fetch(
-      `http://127.0.0.1:${runtime.standaloneWebhookPort}/webhooks/connectors/wecom/callback`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          msgId: "wecom-reply-1",
-          text: `${wecomWireText
-            .split("\n")
-            .map((line) => `> ${line}`)
-            .join("\n")}\nHeap dump uploaded to OSS bucket.`,
-        }),
-      },
-    );
+    const wecomQuoteResp = await fetch(`${origin}/webhooks/connectors/wecom/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        msgId: "wecom-reply-1",
+        text: `${wecomWireText
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n")}\nHeap dump uploaded to OSS bucket.`,
+      }),
+    });
     expect(wecomQuoteResp.status).toBe(202);
 
     expect(host.prompts).toHaveLength(2);
@@ -125,35 +112,25 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     expect(host.prompts[1]!.text).not.toContain("dsh-ctx:");
     expect(host.prompts[1]!.text).toContain("Heap dump uploaded to OSS bucket.");
 
-    const portBeforeDispose = runtime.standaloneWebhookPort!;
-    await host.disposeAll();
-
-    expect(host.registeredTools.size).toBe(0);
-    expect(host.registeredRoutes).toHaveLength(0);
+    await host.stop();
     expect(github.stopped).toBe(true);
     expect(wecom.stopped).toBe(true);
     expect(alerts.stopped).toBe(true);
-
-    await expect(
-      fetch(`http://127.0.0.1:${portBeforeDispose}/webhooks/connectors/github/events`, {
-        method: "POST",
-        body: "{}",
-      }),
-    ).rejects.toThrow();
   });
 
-  it("persists and reloads ContextSessionStore across cold host restarts via ctx.storageDomain and storageFilePath", async () => {
-    const sharedStorageDomain = new Map<string, PersistedContextRecord>();
-    const host1 = new MockDshHost({ storageDomainBacking: sharedStorageDomain });
+  it("persists and reloads ContextSessionStore across cold host restarts via real ctx.storageDomain", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "dsh-plugin-domain-"));
+    tempDirs.push(storageRoot);
+
+    const host1 = await TestDshHost.start({ storageRoot, withWebServer: true });
     const github1 = new MockGithubPrConnector();
 
-    const runtime1 = await mountConnectorPlugin(host1.createContext(), {
+    const runtime1 = await mountConnectorPlugin(host1.ctx, {
       connectors: [github1],
-      webhook: { standalone: { host: "127.0.0.1", port: 0 } },
     });
 
     const resp1 = await fetch(
-      `http://127.0.0.1:${runtime1.standaloneWebhookPort}/webhooks/connectors/github/events`,
+      `${host1.ctx.webServer.getOrigin()}/webhooks/connectors/github/events`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -168,26 +145,27 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     );
     expect(resp1.status).toBe(202);
     const originalSessionId = host1.prompts[0]!.sessionId;
+    const savedPersistedSessions = new Map<SessionId, { cwd: string; title?: string }>(
+      host1.persistedSessions,
+    );
 
     await runtime1.dispose();
-    expect(host1.storageDomainCloseCount).toBe(1);
+    await host1.stop({ keepStorageDir: true });
 
-    const host2 = new MockDshHost({
+    // Cold host restart (headless mode, no sessionController) over the same storageRoot
+    const host2 = await TestDshHost.start({
+      storageRoot,
       useSessionController: false,
-      storageDomainBacking: sharedStorageDomain,
+      withWebServer: true,
+      persistedSessions: savedPersistedSessions,
     });
-    for (const [id, meta] of host1.persistedSessions.entries()) {
-      host2.persistedSessions.set(id, { ...meta });
-    }
-
     const github2 = new MockGithubPrConnector();
-    const runtime2 = await mountConnectorPlugin(host2.createContext(), {
+    const runtime2 = await mountConnectorPlugin(host2.ctx, {
       connectors: [github2],
-      webhook: { standalone: { host: "127.0.0.1", port: 0 } },
     });
 
     const resp2 = await fetch(
-      `http://127.0.0.1:${runtime2.standaloneWebhookPort}/webhooks/connectors/github/events`,
+      `${host2.ctx.webServer.getOrigin()}/webhooks/connectors/github/events`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -206,31 +184,6 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     expect(host2.prompts[0]!.text).toContain("Follow-up after cold process restart");
 
     await runtime2.dispose();
-    expect(host2.storageDomainCloseCount).toBe(1);
-
-    const tempDir = await mkdtemp(join(tmpdir(), "dsh-plugin-file-store-"));
-    tempDirs.push(tempDir);
-    const filePath = join(tempDir, "bindings.json");
-
-    const host3 = new MockDshHost();
-    const wecom3 = new MockWecomBotConnector();
-    const runtime3 = await mountConnectorPlugin(host3.createContext(), {
-      connectors: [wecom3],
-      storageFilePath: filePath,
-    });
-    const created = await host3.createContext().get("sessionController")!.create({});
-    const fileSessionId = created.sessionId!;
-    await runtime3.manager.dispatchSend("wecom", fileSessionId, { text: "Persist to JSON file" });
-    const boundCtx = await runtime3.contextStore.getContext(fileSessionId, "wecom");
-    expect(boundCtx?.contextId.length).toBeGreaterThan(0);
-    await runtime3.dispose();
-
-    const host4 = new MockDshHost();
-    const runtime4 = await mountConnectorPlugin(host4.createContext(), {
-      connectors: [new MockWecomBotConnector()],
-      storageFilePath: filePath,
-    });
-    expect(await runtime4.contextStore.getSessionId(boundCtx!)).toBe(fileSessionId);
-    await runtime4.dispose();
+    await host2.stop({ keepStorageDir: true });
   });
 });
