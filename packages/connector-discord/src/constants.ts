@@ -290,6 +290,7 @@ export const DISCORD_INTERACTION_CALLBACK_TYPES = Object.freeze({
  * @see https://discord.com/developers/docs/topics/opcodes-and-status-codes#json
  */
 export const HTTP_STATUS_OK = 200 as const;
+export const HTTP_STATUS_ACCEPTED = 202 as const;
 export const HTTP_STATUS_NO_CONTENT = 204 as const;
 export const HTTP_STATUS_BAD_REQUEST = 400 as const;
 export const HTTP_STATUS_UNAUTHORIZED = 401 as const;
@@ -298,6 +299,14 @@ export const HTTP_STATUS_NOT_FOUND = 404 as const;
 export const HTTP_STATUS_METHOD_NOT_ALLOWED = 405 as const;
 export const HTTP_STATUS_TOO_MANY_REQUESTS = 429 as const;
 export const HTTP_STATUS_INTERNAL_SERVER_ERROR = 500 as const;
+
+export const DISCORD_CHANNEL_CACHE_MAX_SIZE = 2048 as const;
+
+export const DISCORD_GATEWAY_IDENTIFY_PROPERTIES = Object.freeze({
+  os: "linux",
+  browser: DISCORD_GATEWAY_LIBRARY_NAME,
+  device: DISCORD_GATEWAY_LIBRARY_NAME,
+} as const);
 
 export const DISCORD_JSON_AUTH_ERROR_CODES: ReadonlySet<number> = new Set<number>([
   40001, // Unauthorized. Provide a valid token and try again

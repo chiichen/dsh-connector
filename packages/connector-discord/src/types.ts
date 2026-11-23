@@ -185,6 +185,14 @@ export interface DiscordGatewayPacket<TData = unknown> {
 }
 
 /**
+ * Gateway `HELLO` (`op: 10`) payload data.
+ * @see https://discord.com/developers/docs/events/gateway#hello-event
+ */
+export interface DiscordGatewayHelloData {
+  readonly heartbeat_interval: number;
+}
+
+/**
  * Gateway `READY` dispatch data.
  * @see https://discord.com/developers/docs/events/gateway-events#ready
  */
@@ -351,6 +359,16 @@ export type DiscordSendParams = z.output<typeof discordSendSchema>;
  * @see https://discord.com/developers/docs/events/gateway-events#message-create
  * @see https://discord.com/developers/docs/interactions/receiving-and-responding
  */
+export const discordNormalizedAttachmentSchema = z.object({
+  id: z.string().min(1),
+  filename: z.string().min(1),
+  url: z.string().min(1),
+  contentType: z.string().optional(),
+  size: z.number().int().nonnegative().optional(),
+});
+
+export type DiscordNormalizedAttachment = z.output<typeof discordNormalizedAttachmentSchema>;
+
 export const discordReceiveSourceSchema = z.enum(["gateway-message", "interaction-webhook"]);
 
 export const discordReceiveSchema = z.object({
@@ -363,10 +381,13 @@ export const discordReceiveSchema = z.object({
   authorId: z.string().min(1),
   authorName: z.string().min(1),
   text: z.string(),
+  rawContent: z.string().optional(),
   isDirectMessage: z.boolean(),
   isThread: z.boolean(),
+  mentionedBot: z.boolean().optional(),
   replyToMessageId: z.string().min(1).optional(),
   referencedText: z.string().optional(),
+  attachments: z.array(discordNormalizedAttachmentSchema).optional(),
   interactionToken: z.string().min(1).optional(),
   applicationId: z.string().min(1).optional(),
   interactionType: z.number().int().optional(),
