@@ -207,4 +207,40 @@ describe("prependContextMarker & extractContextMarker", () => {
       cleanedContent: plain,
     });
   });
+
+  it("handles default style, empty bodies, malformed URI escapes, whitespace tokens, and deeper trailing quotes", () => {
+    const defaultStyled = prependContextMarker("Default style", sampleId);
+    expect(defaultStyled).toBe(`<!-- dsh-ctx:${sampleId} -->\nDefault style`);
+
+    const emptyBodyEncoded = prependContextMarker("", sampleId);
+    expect(emptyBodyEncoded).toBe(`<!-- dsh-ctx:${sampleId} -->`);
+
+    const replacedHeaderOnly = prependContextMarker("[#ctx:old-id]", sampleId);
+    expect(replacedHeaderOnly).toBe(`<!-- dsh-ctx:${sampleId} -->`);
+
+    const quotedFirstLine = prependContextMarker("> [#ctx:parent-id]\nChild reply", sampleId);
+    expect(quotedFirstLine).toBe(`<!-- dsh-ctx:${sampleId} -->\n> [#ctx:parent-id]\nChild reply`);
+
+    const malformedPercent = extractContextMarker("<!-- dsh-ctx:raw%ZZid -->\nKept line");
+    expect(malformedPercent).toEqual({
+      contextId: "raw%ZZid",
+      cleanedContent: "Kept line",
+    });
+
+    const decodedWhitespaceOnly = extractContextMarker("<!-- dsh-ctx:%20%20 -->\nBody text");
+    expect(decodedWhitespaceOnly).toEqual({
+      contextId: undefined,
+      cleanedContent: "Body text",
+    });
+
+    const shallowThenDeep = [
+      "> [#ctx:shallow-winner]",
+      "> > [#ctx:deeper-ignored]",
+      "Reply text",
+    ].join("\n");
+    expect(extractContextMarker(shallowThenDeep)).toEqual({
+      contextId: "shallow-winner",
+      cleanedContent: "Reply text",
+    });
+  });
 });
