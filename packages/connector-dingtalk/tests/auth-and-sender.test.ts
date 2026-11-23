@@ -97,6 +97,24 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
         ),
       ).toEqual({ ok: false, reason: "invalid_token" });
 
+      expect(
+        verifyDingTalkWebhookSignature(
+          {},
+          { outgoingToken: "custom-outgoing-token", nowMs: 1_700_000_000_000 },
+        ),
+      ).toEqual({ ok: false, reason: "invalid_token" });
+
+      expect(
+        verifyDingTalkWebhookSignature(
+          { token: "bad" },
+          {
+            signingSecret: "sec",
+            outgoingToken: "custom-outgoing-token",
+            nowMs: 1_700_000_000_000,
+          },
+        ),
+      ).toEqual({ ok: false, reason: "invalid_token" });
+
       expect(verifyDingTalkWebhookSignature({}, { nowMs: 1_700_000_000_000 })).toEqual({
         ok: false,
         reason: "verifier_not_configured",
@@ -407,6 +425,37 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
         userIds: ["u1", "u2"],
         robotCode: "ding-bot",
       });
+
+      fetchMock.mockResolvedValueOnce(jsonResponse({ processQueryKey: "pqk-exp-group" }));
+      const expGroupRes = await sender.send(uuidCtx, {
+        text: "Explicit group target",
+        openConversationId: "cidExplicitGroup==",
+        coolAppCode: "COOL-EXP",
+      });
+      expect(expGroupRes.channel).toBe("groupMessages");
+      expect(expGroupRes.target).toEqual({
+        kind: "group",
+        openConversationId: "cidExplicitGroup==",
+        robotCode: "ding-bot",
+        coolAppCode: "COOL-EXP",
+      });
+
+      await expect(
+        sender.send(uuidCtx, {
+          text: "Whitespace userId",
+          userId: "   ",
+        }),
+      ).rejects.toBeInstanceOf(ConnectorValidationError);
+
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ code: "InvalidAuthentication" }, 401))
+        .mockResolvedValueOnce(jsonResponse({ accessToken: "still-bad", expireIn: 7200 }))
+        .mockResolvedValueOnce(jsonResponse({ code: "InvalidAuthentication" }, 401));
+      await expect(
+        sender.send(createConnectorContext("dingtalk", "p2p:u1"), {
+          text: "Persistent 401",
+        }),
+      ).rejects.toBeInstanceOf(ConnectorAuthError);
     });
 
     it("covers HTTP transport edge cases, preferSessionWebhook, webhook-only fallback, and error mappings", async () => {

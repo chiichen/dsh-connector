@@ -674,6 +674,49 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
       });
       await expect(timeoutWsConn.start()).rejects.toBeInstanceOf(ConnectorTransportError);
 
+      // Aborting handshake mid-flight via stop() + safeSendFrame send error tolerance
+      let pendingSocket: MockWebSocket | undefined;
+      const stopDuringHandshakeConn = createDingTalkConnector({
+        clientId: "id",
+        clientSecret: "sec",
+        wsHandshakeTimeoutMs: 5_000,
+        fetchFn: hsFetch,
+        createWebSocket: (url) => {
+          pendingSocket = new MockWebSocket(url);
+          return pendingSocket;
+        },
+      });
+      const startPromise = stopDuringHandshakeConn.start();
+      await vi.waitFor(() => {
+        expect(pendingSocket).toBeDefined();
+      });
+      await stopDuringHandshakeConn.stop();
+      await expect(startPromise).rejects.toThrow();
+
+      let throwSocket: MockWebSocket | undefined;
+      const sendErrConn = createDingTalkConnector({
+        clientId: "id",
+        clientSecret: "sec",
+        autoReconnect: false,
+        fetchFn: hsFetch,
+        createWebSocket: (url) => {
+          const ws = new MockWebSocket(url);
+          ws.send = () => {
+            throw new Error("broken pipe");
+          };
+          throwSocket = ws;
+          queueMicrotask(() => ws.simulateOpen());
+          return ws;
+        },
+      });
+      await sendErrConn.start();
+      throwSocket!.simulateServerMessage({
+        type: "SYSTEM",
+        headers: { topic: "ping", messageId: "p-err" },
+        data: "not-json-ping-data",
+      });
+      await sendErrConn.stop();
+
       // Reconnect failure followed by recovery + malformed frames + media types
       const sockets: MockWebSocket[] = [];
       const recoveryFetch = vi
