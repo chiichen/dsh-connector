@@ -327,9 +327,4 @@ export {
   type StandaloneWebhookServerOptions,
   type WebhookRouterOptions,
 } from "./webhook-router";
-export {
-  zodToDshJsonSchema,
-  type DshJsonPrimitiveType,
-  type DshJsonSchema,
-  type DshObjectJsonSchema,
-} from "./zod-json-schema";
+export { zodToDshJsonSchema } from "./zod-json-schema";

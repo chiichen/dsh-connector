@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
 import type { ConnectorLogger } from "@dsh-connector/core";
 import type { DshKvTableLike } from "./context-store";
-import type { DshObjectJsonSchema } from "./zod-json-schema";
 
 export interface DshTextPartLike {
   readonly type: "text";
@@ -64,9 +64,9 @@ export interface DshToolRunContextLike {
 export interface DshToolDefinitionLike {
   readonly name: string;
   readonly description: string;
-  readonly parameters: DshObjectJsonSchema;
+  readonly parameters: ObjectJsonSchema;
   readonly output?: {
-    readonly schema: DshObjectJsonSchema;
+    readonly schema: ObjectJsonSchema;
     render?(value: unknown): string;
   };
   execute(args: unknown, exec: DshToolRunContextLike): Promise<unknown>;

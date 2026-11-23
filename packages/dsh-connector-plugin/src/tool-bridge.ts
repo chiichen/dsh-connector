@@ -3,9 +3,10 @@ import {
   type Connector,
   type ConnectorSender,
 } from "@dsh-connector/core";
+import type { ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
 import type { DshToolsServiceLike } from "./dsh-types";
 import type { ConnectorManager } from "./manager";
-import { zodToDshJsonSchema, type DshObjectJsonSchema } from "./zod-json-schema";
+import { zodToDshJsonSchema } from "./zod-json-schema";
 
 export interface ToolBridgeOptions {
   readonly toolNamePrefix?: string;
@@ -21,7 +22,7 @@ class ToolBridgeExecutionError extends Error {
   }
 }
 
-const TOOL_OUTPUT_SCHEMA: DshObjectJsonSchema = {
+const TOOL_OUTPUT_SCHEMA: ObjectJsonSchema = {
   type: "object",
   properties: {
     ok: { type: "boolean" },

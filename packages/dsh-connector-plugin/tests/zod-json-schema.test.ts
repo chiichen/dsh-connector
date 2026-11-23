@@ -1,74 +1,34 @@
+import { assertObjectJsonSchema, type ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConnectorValidationError } from "@dsh-connector/core";
-import { zodToDshJsonSchema, type DshJsonSchema } from "../src/zod-json-schema";
+import {
+  CONNECTOR_PLUGIN_NAME,
+  CONNECTOR_STORAGE_DOMAIN_NAME,
+  CONNECTOR_STORAGE_TABLE_NAME,
+  DEFAULT_DEDUPLICATION_MAX_ENTRIES,
+  DEFAULT_DEDUPLICATION_TTL_MS,
+  DEFAULT_TOOL_NAME_PREFIX,
+  DEFAULT_WEBHOOK_BASE_PATH,
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+} from "../src/constants";
+import { zodToDshJsonSchema } from "../src/zod-json-schema";
 
-const ALLOWED_KEYWORDS = new Set([
-  "type",
-  "oneOf",
-  "properties",
-  "required",
-  "additionalProperties",
-  "items",
-  "enum",
-  "const",
-  "description",
-  "title",
-  "default",
-  "examples",
-]);
-
-const ALLOWED_TYPES = new Set([
-  "object",
-  "array",
-  "string",
-  "number",
-  "integer",
-  "boolean",
-  "null",
-]);
-
-function assertStrictDshSchema(node: unknown, path = "$"): void {
-  expect(typeof node === "object" && node !== null && !Array.isArray(node)).toBe(true);
-  const record = node as Record<string, unknown>;
-
-  for (const key of Object.keys(record)) {
-    if (!ALLOWED_KEYWORDS.has(key)) {
-      throw new Error(`Forbidden DSH JSON Schema keyword "${key}" at ${path}`);
-    }
-  }
-
-  if ("type" in record) {
-    expect(typeof record["type"]).toBe("string");
-    expect(ALLOWED_TYPES.has(record["type"] as string)).toBe(true);
-    expect("oneOf" in record).toBe(false);
-  }
-
-  if ("oneOf" in record) {
-    expect(Array.isArray(record["oneOf"])).toBe(true);
-    const branches = record["oneOf"] as unknown[];
-    expect(branches.length).toBeGreaterThanOrEqual(2);
-    branches.forEach((branch, idx) => assertStrictDshSchema(branch, `${path}.oneOf[${idx}]`));
-  }
-
-  if ("additionalProperties" in record) {
-    expect(typeof record["additionalProperties"]).toBe("boolean");
-  }
-
-  if ("properties" in record) {
-    const props = record["properties"] as Record<string, unknown>;
-    for (const [propName, propSchema] of Object.entries(props)) {
-      assertStrictDshSchema(propSchema, `${path}.properties.${propName}`);
-    }
-  }
-
-  if ("items" in record) {
-    assertStrictDshSchema(record["items"], `${path}.items`);
-  }
-}
+describe("plugin named constants", () => {
+  it("defines non-empty named constants matching DSH storage unit naming rules", () => {
+    expect(CONNECTOR_PLUGIN_NAME).toBe("dsh-connector-plugin");
+    expect(CONNECTOR_STORAGE_DOMAIN_NAME).toMatch(/^[a-z][a-z0-9_]*$/);
+    expect(CONNECTOR_STORAGE_TABLE_NAME).toMatch(/^[a-z][a-z0-9_]*$/);
+    expect(DEFAULT_TOOL_NAME_PREFIX).toBe("connector_send_");
+    expect(DEFAULT_WEBHOOK_BASE_PATH).toBe("/webhooks/connectors");
+    expect(DEFAULT_WEBHOOK_MAX_BODY_BYTES).toBeGreaterThan(0);
+    expect(DEFAULT_DEDUPLICATION_TTL_MS).toBeGreaterThan(0);
+    expect(DEFAULT_DEDUPLICATION_MAX_ENTRIES).toBeGreaterThan(0);
+  });
+});
 
 describe("zodToDshJsonSchema", () => {
-  it("compiles complex Zod v4 object schemas into 100% DSH-compliant strict JSON Schema", () => {
+  it("lowers complex Zod v4 object schemas into @deepseek-ai/dsh-tools ObjectJsonSchema subset", () => {
     const complexSendSchema = z.object({
       repo: z.string().min(3).max(100).describe("Target owner/repo"),
       issueNumber: z.number().int().min(1).optional(),
@@ -81,11 +41,12 @@ describe("zodToDshJsonSchema", () => {
       ]),
       labels: z.array(z.string()).max(10).optional(),
       extraMeta: z.record(z.string(), z.unknown()).optional(),
+      arbitraryPayload: z.unknown().describe("Arbitrary JSON metadata").optional(),
     });
 
-    const dshSchema: DshJsonSchema = zodToDshJsonSchema(complexSendSchema);
+    const dshSchema: ObjectJsonSchema = zodToDshJsonSchema(complexSendSchema);
 
-    assertStrictDshSchema(dshSchema);
+    expect(() => assertObjectJsonSchema(dshSchema)).not.toThrow();
     expect(dshSchema.type).toBe("object");
     expect(dshSchema.required).toContain("repo");
     expect(dshSchema.required).toContain("body");
@@ -98,6 +59,10 @@ describe("zodToDshJsonSchema", () => {
     const nullableEmail = dshSchema.properties?.["reviewerEmail"];
     expect(nullableEmail?.oneOf).toBeDefined();
     expect(nullableEmail?.type).toBeUndefined();
+
+    // Unconstrained unknown/any lowers to DSH's annotation-only unconstrained JsonValue node
+    const arbitraryPayload = dshSchema.properties?.["arbitraryPayload"];
+    expect(arbitraryPayload).toEqual({ description: "Arbitrary JSON metadata" });
   });
 
   it("accepts refined z.ZodType object schemas and rejects non-object root schemas with ConnectorValidationError", () => {
@@ -109,7 +74,7 @@ describe("zodToDshJsonSchema", () => {
       .refine((val) => val.message.trim().length > 0);
 
     const compiled = zodToDshJsonSchema(refinedSchema);
-    assertStrictDshSchema(compiled);
+    expect(() => assertObjectJsonSchema(compiled)).not.toThrow();
     expect(compiled.type).toBe("object");
     expect(compiled.required).toEqual(["targetId", "message"]);
 

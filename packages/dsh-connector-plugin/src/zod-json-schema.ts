@@ -1,36 +1,31 @@
+/**
+ * Lowers arbitrary Zod v4 schemas (`ConnectorSender.schema`) into the closed
+ * JSON Schema subset enforced by `@deepseek-ai/dsh-tools` (`ObjectJsonSchema` /
+ * `assertObjectJsonSchema`) and `@deepseek-ai/dsh-tool-executor-ptc` (`jsonSchemaToTs`).
+ *
+ * Why this adapter exists instead of passing `z.toJSONSchema(schema)` raw:
+ * - Zod's `z.toJSONSchema()` emits Draft 2020-12 keywords (`$schema`, `$defs`/`$ref`,
+ *   `anyOf`, multi-type arrays such as `["string", "null"]`, and refinement keywords
+ *   such as `minLength`, `maxLength`, `format`, `pattern`, `minimum`, `maximum`).
+ * - DSH's strict schema validator (`assertSupportedJsonSchema` / `assertObjectJsonSchema`)
+ *   rejects any keyword outside `type` (single string), `oneOf`, `properties`, `required`,
+ *   boolean `additionalProperties`, `items`, scalar `enum`/`const`, and annotations; in
+ *   PTC mode (`jsonSchemaToTs`), unsupported keywords cause the generated TypeScript
+ *   tool parameter signature to degrade to `unknown`.
+ * - Full runtime input validation (including `minLength`, `regex`, `refine`, etc.) still
+ *   runs via `sender.schema.safeParse(rawParams)` inside `ConnectorManager.dispatchSend`.
+ */
+
+import {
+  assertObjectJsonSchema,
+  type JsonSchemaNode,
+  type JsonSchemaScalar,
+  type JsonSchemaType,
+  type ObjectJsonSchema,
+} from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import { z } from "zod";
 import { ConnectorValidationError } from "@dsh-connector/core";
-
-export type DshJsonPrimitiveType =
-  | "object"
-  | "array"
-  | "string"
-  | "number"
-  | "integer"
-  | "boolean"
-  | "null";
-
-export interface DshJsonSchema {
-  readonly type?: DshJsonPrimitiveType;
-  readonly oneOf?: readonly DshJsonSchema[];
-  readonly properties?: Readonly<Record<string, DshJsonSchema>>;
-  readonly required?: readonly string[];
-  readonly additionalProperties?: boolean;
-  readonly items?: DshJsonSchema;
-  readonly enum?: readonly unknown[];
-  readonly const?: unknown;
-  readonly description?: string;
-  readonly title?: string;
-  readonly default?: unknown;
-  readonly examples?: readonly unknown[];
-}
-
-export interface DshObjectJsonSchema extends DshJsonSchema {
-  readonly type: "object";
-  readonly properties: Readonly<Record<string, DshJsonSchema>>;
-  readonly required?: readonly string[];
-  readonly additionalProperties?: boolean;
-}
 
 const VALID_TYPES = new Set<string>([
   "object",
@@ -41,6 +36,9 @@ const VALID_TYPES = new Set<string>([
   "boolean",
   "null",
 ]);
+
+const JSON_POINTER_DEFS_PREFIX = "#/$defs/";
+const JSON_POINTER_DEFINITIONS_PREFIX = "#/definitions/";
 
 const CONSTRAINT_HINT_KEYS = [
   "format",
@@ -56,7 +54,25 @@ const CONSTRAINT_HINT_KEYS = [
   "maxItems",
 ] as const;
 
-function extractAnnotations(raw: Record<string, unknown>): Partial<DshJsonSchema> {
+function isJsonScalar(value: unknown): value is JsonSchemaScalar {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    (typeof value === "number" && Number.isFinite(value)) ||
+    typeof value === "boolean"
+  );
+}
+
+function isLosslessJsonValue(value: unknown): value is JsonValue {
+  if (isJsonScalar(value)) return true;
+  if (Array.isArray(value)) return value.every(isLosslessJsonValue);
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).every(isLosslessJsonValue);
+  }
+  return false;
+}
+
+function extractAnnotations(raw: Record<string, unknown>): JsonSchemaNode {
   const hints: string[] = [];
   for (const key of CONSTRAINT_HINT_KEYS) {
     const val = raw[key];
@@ -72,25 +88,27 @@ function extractAnnotations(raw: Record<string, unknown>): Partial<DshJsonSchema
       ? `${baseDesc} ${hintSuffix}`
       : (baseDesc ?? hintSuffix);
 
-  const out: Record<string, unknown> = {};
-  if (description !== undefined) out["description"] = description;
-  if (typeof raw["title"] === "string") out["title"] = raw["title"];
-  if ("default" in raw && raw["default"] !== undefined) out["default"] = raw["default"];
-  if (Array.isArray(raw["examples"])) out["examples"] = raw["examples"];
-  return out as Partial<DshJsonSchema>;
+  const out: JsonSchemaNode = {};
+  if (description !== undefined) out.description = description;
+  if (typeof raw["title"] === "string") out.title = raw["title"];
+  if ("default" in raw && raw["default"] !== undefined && isLosslessJsonValue(raw["default"])) {
+    out.default = raw["default"];
+  }
+  if (Array.isArray(raw["examples"]) && isLosslessJsonValue(raw["examples"])) {
+    out.examples = raw["examples"];
+  }
+  return out;
 }
 
 function resolveRef(
   ref: string,
   defs: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> | undefined {
-  const prefixDefs = "#/$defs/";
-  const prefixDefinitions = "#/definitions/";
   let key: string | undefined;
-  if (ref.startsWith(prefixDefs)) {
-    key = decodeURIComponent(ref.slice(prefixDefs.length));
-  } else if (ref.startsWith(prefixDefinitions)) {
-    key = decodeURIComponent(ref.slice(prefixDefinitions.length));
+  if (ref.startsWith(JSON_POINTER_DEFS_PREFIX)) {
+    key = decodeURIComponent(ref.slice(JSON_POINTER_DEFS_PREFIX.length));
+  } else if (ref.startsWith(JSON_POINTER_DEFINITIONS_PREFIX)) {
+    key = decodeURIComponent(ref.slice(JSON_POINTER_DEFINITIONS_PREFIX.length));
   }
   if (key === undefined) return undefined;
   const target = defs[key];
@@ -99,9 +117,9 @@ function resolveRef(
     : undefined;
 }
 
-function deduplicateBranches(branches: readonly DshJsonSchema[]): DshJsonSchema[] {
+function deduplicateBranches(branches: readonly JsonSchemaNode[]): JsonSchemaNode[] {
   const seen = new Set<string>();
-  const unique: DshJsonSchema[] = [];
+  const unique: JsonSchemaNode[] = [];
   for (const branch of branches) {
     const flattened =
       branch.oneOf !== undefined &&
@@ -121,27 +139,20 @@ function deduplicateBranches(branches: readonly DshJsonSchema[]): DshJsonSchema[
   return unique;
 }
 
-function fallbackAnySchema(annotations: Partial<DshJsonSchema>): DshJsonSchema {
-  return {
-    ...annotations,
-    oneOf: [
-      { type: "string" },
-      { type: "number" },
-      { type: "boolean" },
-      { type: "null" },
-      { type: "object", additionalProperties: true },
-      { type: "array", items: { type: "string" } },
-    ],
-  };
+function inferScalarType(val: JsonSchemaScalar): JsonSchemaType {
+  if (val === null) return "null";
+  if (typeof val === "string") return "string";
+  if (typeof val === "number") return "number";
+  return "boolean";
 }
 
 function normalizeNode(
   rawNode: unknown,
   defs: Readonly<Record<string, unknown>>,
   visitedRefs: ReadonlySet<string>,
-): DshJsonSchema {
+): JsonSchemaNode {
   if (typeof rawNode !== "object" || rawNode === null || Array.isArray(rawNode)) {
-    return fallbackAnySchema({});
+    return {};
   }
 
   const raw = rawNode as Record<string, unknown>;
@@ -150,7 +161,7 @@ function normalizeNode(
   if (typeof raw["$ref"] === "string") {
     const ref = raw["$ref"];
     if (visitedRefs.has(ref)) {
-      return { ...annotations, type: "object", additionalProperties: true };
+      return { ...annotations };
     }
     const resolved = resolveRef(ref, defs);
     if (resolved !== undefined) {
@@ -159,7 +170,7 @@ function normalizeNode(
       const inner = normalizeNode(resolved, defs, nextVisited);
       return { ...inner, ...annotations };
     }
-    return fallbackAnySchema(annotations);
+    return { ...annotations };
   }
 
   const rawUnion = Array.isArray(raw["oneOf"])
@@ -171,7 +182,7 @@ function normalizeNode(
   if (rawUnion !== undefined) {
     const branches = deduplicateBranches(rawUnion.map((b) => normalizeNode(b, defs, visitedRefs)));
     if (branches.length === 0) {
-      return fallbackAnySchema(annotations);
+      return { ...annotations };
     }
     if (branches.length === 1) {
       return { ...branches[0]!, ...annotations };
@@ -181,11 +192,11 @@ function normalizeNode(
 
   if (Array.isArray(raw["type"])) {
     const typeList = (raw["type"] as unknown[]).filter(
-      (t): t is DshJsonPrimitiveType => typeof t === "string" && VALID_TYPES.has(t),
+      (t): t is JsonSchemaType => typeof t === "string" && VALID_TYPES.has(t),
     );
     const branches = deduplicateBranches(
       typeList.map((t) => {
-        if (t === "null") return { type: "null" } satisfies DshJsonSchema;
+        if (t === "null") return { type: "null" } satisfies JsonSchemaNode;
         const clone: Record<string, unknown> = { ...raw, type: t };
         delete clone["description"];
         delete clone["title"];
@@ -195,48 +206,52 @@ function normalizeNode(
         return normalizeNode(clone, defs, visitedRefs);
       }),
     );
-    if (branches.length === 0) return fallbackAnySchema(annotations);
+    if (branches.length === 0) return { ...annotations };
     if (branches.length === 1) return { ...branches[0]!, ...annotations };
     return { ...annotations, oneOf: branches };
   }
 
-  if ("const" in raw && raw["const"] !== undefined) {
+  if ("const" in raw && isJsonScalar(raw["const"])) {
     const val = raw["const"];
-    const inferredType: DshJsonPrimitiveType | undefined =
+    const inferredType: JsonSchemaType =
       typeof raw["type"] === "string" && VALID_TYPES.has(raw["type"])
-        ? (raw["type"] as DshJsonPrimitiveType)
-        : val === null
-          ? "null"
-          : typeof val === "string"
-            ? "string"
-            : typeof val === "number"
-              ? "number"
-              : typeof val === "boolean"
-                ? "boolean"
-                : undefined;
+        ? (raw["type"] as JsonSchemaType)
+        : inferScalarType(val);
     return {
       ...annotations,
-      ...(inferredType !== undefined ? { type: inferredType } : {}),
+      type: inferredType,
       const: val,
     };
   }
 
-  if (Array.isArray(raw["enum"]) && raw["enum"].length > 0) {
-    const enumValues = raw["enum"] as unknown[];
+  if (Array.isArray(raw["enum"]) && raw["enum"].length > 0 && raw["enum"].every(isJsonScalar)) {
+    const enumValues = raw["enum"];
+    const firstType = inferScalarType(enumValues[0]!);
+    const allSameScalarType = enumValues.every((v) => inferScalarType(v) === firstType);
     const explicitType =
       typeof raw["type"] === "string" && VALID_TYPES.has(raw["type"])
-        ? (raw["type"] as DshJsonPrimitiveType)
-        : undefined;
-    return {
-      ...annotations,
-      ...(explicitType !== undefined ? { type: explicitType } : {}),
-      enum: enumValues,
-    };
+        ? (raw["type"] as JsonSchemaType)
+        : allSameScalarType
+          ? firstType
+          : undefined;
+    if (explicitType !== undefined) {
+      return {
+        ...annotations,
+        type: explicitType,
+        enum: enumValues,
+      };
+    }
+    const literalBranches = deduplicateBranches(
+      enumValues.map((v) => ({ type: inferScalarType(v), const: v })),
+    );
+    return literalBranches.length === 1
+      ? { ...literalBranches[0]!, ...annotations }
+      : { ...annotations, oneOf: literalBranches };
   }
 
   const rawType =
     typeof raw["type"] === "string" && VALID_TYPES.has(raw["type"])
-      ? (raw["type"] as DshJsonPrimitiveType)
+      ? (raw["type"] as JsonSchemaType)
       : typeof raw["properties"] === "object" && raw["properties"] !== null
         ? "object"
         : undefined;
@@ -248,7 +263,7 @@ function normalizeNode(
       !Array.isArray(raw["properties"])
         ? (raw["properties"] as Record<string, unknown>)
         : {};
-    const properties: Record<string, DshJsonSchema> = {};
+    const properties: Record<string, JsonSchemaNode> = {};
     for (const [propKey, propVal] of Object.entries(rawProps)) {
       properties[propKey] = normalizeNode(propVal, defs, visitedRefs);
     }
@@ -277,26 +292,24 @@ function normalizeNode(
 
   if (rawType === "array") {
     const rawItems = raw["items"];
-    let items: DshJsonSchema;
+    let items: JsonSchemaNode | undefined;
     if (Array.isArray(rawItems)) {
       const itemBranches = deduplicateBranches(
         rawItems.map((it) => normalizeNode(it, defs, visitedRefs)),
       );
       items =
         itemBranches.length === 0
-          ? { type: "string" }
+          ? undefined
           : itemBranches.length === 1
             ? itemBranches[0]!
             : { oneOf: itemBranches };
     } else if (rawItems !== undefined) {
       items = normalizeNode(rawItems, defs, visitedRefs);
-    } else {
-      items = { type: "string" };
     }
     return {
       ...annotations,
       type: "array",
-      items,
+      ...(items !== undefined ? { items } : {}),
     };
   }
 
@@ -307,12 +320,15 @@ function normalizeNode(
     };
   }
 
-  return fallbackAnySchema(annotations);
+  // Annotation-only schema node is DSH's canonical unconstrained JsonValue representation.
+  return { ...annotations };
 }
 
-export function zodToDshJsonSchema<TSchema extends z.ZodType>(
-  schema: TSchema,
-): DshObjectJsonSchema {
+/**
+ * Compile a `ConnectorSender.schema` (`z.ZodType`) into an `@deepseek-ai/dsh-tools`
+ * `ObjectJsonSchema` validated by DSH's own `assertObjectJsonSchema`.
+ */
+export function zodToDshJsonSchema<TSchema extends z.ZodType>(schema: TSchema): ObjectJsonSchema {
   const rawRoot = z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<string, unknown>;
   const defs: Record<string, unknown> = {
     ...(typeof rawRoot["definitions"] === "object" && rawRoot["definitions"] !== null
@@ -326,13 +342,15 @@ export function zodToDshJsonSchema<TSchema extends z.ZodType>(
   const normalized = normalizeNode(rawRoot, defs, new Set());
   if (normalized.type !== "object") {
     throw new ConnectorValidationError(
-      `DSH Agent tool parameters require an object root schema (received "${normalized.type ?? "union"}").`,
+      `DSH Agent tool parameters require an object root schema (received "${normalized.type ?? "non-object"}").`,
     );
   }
 
-  return {
+  const candidate: ObjectJsonSchema = {
     ...normalized,
     type: "object",
     properties: normalized.properties ?? {},
   };
+  assertObjectJsonSchema(candidate);
+  return candidate;
 }
