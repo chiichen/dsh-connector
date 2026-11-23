@@ -65,3 +65,33 @@ export {
   type FeishuSendInput,
   type FeishuSendParams,
 } from "./context";
+
+export {
+  computeFeishuEventSignature,
+  decryptFeishuPayload,
+  encryptFeishuPayload,
+  verifyFeishuEventSignature,
+  verifyFeishuVerificationToken,
+  type FeishuSignatureCheckInput,
+} from "./crypto";
+
+export {
+  FeishuApiClient,
+  type FeishuApiClientOptions,
+  type FeishuBotInfo,
+  type FeishuFetchedMessageItem,
+  type FeishuOutboundMsgType,
+  type FeishuReplyMessageApiRequest,
+  type FeishuRequestCallOptions,
+  type FeishuSendMessageApiData,
+  type FeishuSendMessageApiRequest,
+  type FeishuWsEndpointInfo,
+  type FeishuWsServerClientConfig,
+} from "./api-client";
+
+export {
+  buildFeishuOutboundContent,
+  createFeishuSender,
+  type CreateFeishuSenderOptions,
+  type FeishuSendResult,
+} from "./sender";
