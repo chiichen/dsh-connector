@@ -93,7 +93,7 @@ class MockWebSocket implements DingTalkWebSocketLike {
     this.emit("close", { code, reason });
   }
 
-  private emit(type: WsEventType, event: DingTalkMessageEventLike & DingTalkCloseEventLike): void {
+  emit(type: WsEventType, event: DingTalkMessageEventLike & DingTalkCloseEventLike): void {
     const snapshot = Array.from(this.listeners[type]);
     for (const listener of snapshot) {
       listener(event);
@@ -1014,6 +1014,192 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
       resolveSlowReceive?.();
       await stopPromise;
       expect(received.some((m) => m.msgId === "m-slow")).toBe(true);
+    });
+
+    it("covers defaultCreateWebSocket, richText/media/quote edge branches, and frame fallbacks", async () => {
+      const createdWs: MockWebSocket[] = [];
+      class GlobalStubWebSocket extends MockWebSocket {
+        constructor(url: string) {
+          super(url);
+          createdWs.push(this);
+          queueMicrotask(() => this.simulateOpen());
+        }
+      }
+      vi.stubGlobal("WebSocket", GlobalStubWebSocket);
+
+      try {
+        const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(
+          jsonResponse({
+            endpoint: "wss://wss-open-connection.dingtalk.com",
+            ticket: "tk-global",
+          }),
+        );
+
+        const rx = new DingTalkReceiver({
+          connectorName: "dingtalk",
+          clientId: "cli",
+          clientSecret: "sec",
+          outgoingToken: "tok-edge",
+          streamSubscriptions: [{ type: "CALLBACK", topic: "/v1.0/im/bot/messages/get" }],
+          fetchFn,
+        });
+
+        const idGen = createDefaultContextIdGenerator();
+        const received: DingTalkInboundMessage[] = [];
+        rx.init({
+          contextIdGenerator: idGen,
+          allocateContextId: () => idGen.generate("dingtalk"),
+          onReceive: async (_ctx, params) => {
+            received.push(params);
+            return { sessionId: "s-edge" };
+          },
+          logger: { debug() {}, info() {}, warn() {}, error() {} },
+        });
+
+        await rx.startStream();
+        expect(createdWs).toHaveLength(1);
+
+        // Non-string/non-Uint8Array data + SYSTEM ping with broken JSON + CALLBACK without messageId/non-object data + EVENT without messageId
+        createdWs[0]!.emit("message", { data: undefined });
+        createdWs[0]!.simulateServerMessage({
+          type: "SYSTEM",
+          headers: { topic: "ping", messageId: "p-empty" },
+          data: "{bad-ping-json",
+        });
+        createdWs[0]!.simulateServerMessage({
+          type: "CALLBACK",
+          headers: { topic: "other/topic" },
+        });
+        createdWs[0]!.simulateServerMessage({
+          type: "CALLBACK",
+          headers: { topic: "/v1.0/im/bot/messages/get", messageId: "cb-arr" },
+          data: "[]",
+        });
+        createdWs[0]!.simulateServerMessage({
+          type: "EVENT",
+          headers: { topic: "evt" },
+        });
+
+        await rx.stopStream();
+
+        // Webhook payloads exercising richText/audio/picture/file/quote/msgId edge cases
+        const edgePayloads = [
+          {
+            // omitted msgtype -> defaults to "text", omitted text -> ignored
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            // audio without recognition -> ignored
+            msgtype: "audio",
+            content: {},
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            // picture without downloadCode -> ignored
+            msgtype: "picture",
+            content: {},
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            // richText with non-record item, empty nested text, and pictureDownloadCode + file without fileName
+            msgtype: "richText",
+            content: {
+              richText: [null, { text: { content: "   " } }, { pictureDownloadCode: "pdl-1" }],
+            },
+            conversationId: "cid-1",
+            senderId: "u1",
+            createAt: "0",
+            text: {
+              isReplyMsg: true,
+              repliedMsg: { content: JSON.stringify({ content: "json-content-quote" }) },
+            },
+          },
+          {
+            // file without fileName + broken JSON quote starting with '{'
+            msgtype: "file",
+            content: "[]",
+            conversationId: "cid-1",
+            senderId: "u1",
+            text: {
+              isReplyMsg: true,
+              repliedMsg: { content: "{broken-quote" },
+            },
+          },
+          {
+            // empty string quote + marker-only quote + object quote with content key + non-object quote
+            text: {
+              content: "Marker only quote",
+              isReplyMsg: true,
+              repliedMsg: {
+                content: prependContextMarker(
+                  "",
+                  createConnectorContext("dingtalk", "ctx-only").contextId,
+                ),
+              },
+            },
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            text: {
+              content: "Empty string quote",
+              isReplyMsg: true,
+              repliedMsg: { content: "   " },
+            },
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            text: {
+              content: "Object content quote",
+              isReplyMsg: true,
+              repliedMsg: { content: { content: "from-obj-content" } },
+            },
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+          {
+            text: {
+              content: "Scalar quote",
+              isReplyMsg: true,
+              repliedMsg: { content: 42 as unknown as string },
+            },
+            conversationId: "cid-1",
+            senderId: "u1",
+          },
+        ];
+
+        for (const payload of edgePayloads) {
+          const res = await rx.handleWebhook({
+            method: "POST",
+            pathname: "/webhooks/dingtalk",
+            subPath: "",
+            query: new URLSearchParams(),
+            headers: { token: "tok-edge" },
+            rawBody: new TextEncoder().encode(JSON.stringify(payload)),
+          });
+          expect(res.status).toBe(200);
+        }
+
+        expect(received.map((m) => m.text)).toEqual([
+          "[picture]",
+          "[file]",
+          "Marker only quote",
+          "Empty string quote",
+          "Object content quote",
+          "Scalar quote",
+        ]);
+        expect(received[0]?.quotedText).toBe("json-content-quote");
+        expect(received[1]?.quotedText).toBe("{broken-quote");
+        expect(received[2]?.quotedText).toBeUndefined();
+        expect(received[4]?.quotedText).toBe("from-obj-content");
+        expect(received[5]?.quotedText).toBeUndefined();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

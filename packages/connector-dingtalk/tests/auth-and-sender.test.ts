@@ -15,6 +15,7 @@ import {
   SessionWebhookCache,
   verifyDingTalkWebhookSignature,
 } from "../src";
+import { requestDingTalkJson } from "../src/http";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -699,6 +700,62 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
         (await fbSender.send(createConnectorContext("dingtalk", "group:cid-fb"), { text: "hi g" }))
           .channel,
       ).toBe("sessionWebhook");
+
+      // requestDingTalkJson & SessionWebhookCache default options / non-Error abort / empty & 500 non-JSON bodies
+      const defaultCache = new SessionWebhookCache();
+      defaultCache.set(
+        "p2p:default-clock",
+        "https://oapi.dingtalk.com/robot/sendBySession?session=dc",
+        Date.now() + 60_000,
+      );
+      expect(defaultCache.get("p2p:default-clock")).toBeDefined();
+
+      const httpEdgeFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockResolvedValueOnce(new Response("<html>500</html>", { status: 500 }));
+
+      const emptyRes = await requestDingTalkJson({
+        connectorName: "dingtalk",
+        fetchFn: httpEdgeFetch,
+        url: "https://api.dingtalk.com/v1.0/ping",
+        method: "GET",
+      });
+      expect(emptyRes.data).toEqual({});
+
+      const errHtmlRes = await requestDingTalkJson({
+        connectorName: "dingtalk",
+        fetchFn: httpEdgeFetch,
+        url: "https://api.dingtalk.com/v1.0/ping",
+        timeoutMs: 0,
+      });
+      expect(errHtmlRes.ok).toBe(false);
+
+      const preStrAbort = new AbortController();
+      preStrAbort.abort("string-pre-abort");
+      await expect(
+        requestDingTalkJson({
+          connectorName: "dingtalk",
+          fetchFn: httpEdgeFetch,
+          url: "https://api.dingtalk.com/v1.0/ping",
+          signal: preStrAbort.signal,
+        }),
+      ).rejects.toBeInstanceOf(ConnectorTransportError);
+
+      const midStrAbort = new AbortController();
+      const hangingFetch = vi.fn<typeof fetch>((_url, init) => {
+        return new Promise<Response>((_res, rej) => {
+          init?.signal?.addEventListener("abort", () => rej(new Error("aborted")));
+        });
+      });
+      const midStrPromise = requestDingTalkJson({
+        connectorName: "dingtalk",
+        fetchFn: hangingFetch,
+        url: "https://api.dingtalk.com/v1.0/ping",
+        signal: midStrAbort.signal,
+      });
+      setTimeout(() => midStrAbort.abort("string-mid-abort"), 2);
+      await expect(midStrPromise).rejects.toBeInstanceOf(ConnectorTransportError);
     });
   });
 });

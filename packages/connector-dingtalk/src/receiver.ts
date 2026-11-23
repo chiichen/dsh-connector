@@ -92,7 +92,7 @@ function parseOptionalEpochMs(value: unknown): number | undefined {
   }
   if (typeof value === "string" && /^\d+$/.test(value.trim())) {
     const parsed = Number(value.trim());
-    return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
+    return parsed > 0 ? parsed : undefined;
   }
   return undefined;
 }
@@ -578,11 +578,6 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     const socket = this.createWebSocket(wsUrl);
     await this.waitForSocketOpen(socket, signal);
 
-    if (!this.streamRunning || signal.aborted) {
-      socket.close(WS_CLOSE_NORMAL, "aborted");
-      return;
-    }
-
     this.activeSocket = socket;
     this.currentReconnectDelayMs = this.reconnectInitialDelayMs;
     this.attachSocketRuntimeListeners(socket, signal);
@@ -590,7 +585,6 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
 
   private waitForSocketOpen(socket: DingTalkWebSocketLike, signal: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      let settled = false;
       const timer = setTimeout(() => {
         cleanup();
         try {
@@ -655,19 +649,12 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
       };
 
       const cleanup = (): void => {
-        if (settled) return;
-        settled = true;
         clearTimeout(timer);
         socket.removeEventListener("open", onOpen);
         socket.removeEventListener("error", onError);
         socket.removeEventListener("close", onClose);
         signal.removeEventListener("abort", onAbort);
       };
-
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
 
       socket.addEventListener("open", onOpen);
       socket.addEventListener("error", onError);
@@ -680,7 +667,6 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     let serverRequestedDisconnect = false;
 
     const onMessage = (event: DingTalkMessageEventLike): void => {
-      if (this.activeSocket !== socket || !this.streamRunning) return;
       const rawText =
         typeof event.data === "string"
           ? event.data
@@ -724,12 +710,8 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
   }
 
   private scheduleReconnect(signal: AbortSignal, delayMs: number): void {
-    if (this.reconnectTimer !== undefined || !this.streamRunning || signal.aborted) {
-      return;
-    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
-      if (!this.streamRunning || signal.aborted) return;
       void this.openAndConnectOnce(signal).catch((error: unknown) => {
         if (!this.streamRunning || signal.aborted) return;
         this.logger.warn("DingTalk Stream reconnect attempt failed", {
