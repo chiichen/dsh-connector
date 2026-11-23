@@ -9,4 +9,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
+  deps: {
+    neverBundle: [/^@deepseek-ai\//],
+  },
 });

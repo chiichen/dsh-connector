@@ -1,3 +1,5 @@
+import { DEFAULT_DEDUPLICATION_MAX_ENTRIES, DEFAULT_DEDUPLICATION_TTL_MS } from "./constants";
+
 export class KeyedSerialQueue {
   private readonly tails = new Map<string, Promise<void>>();
 
@@ -33,8 +35,8 @@ export class TtlDeduplicator {
   private readonly seen = new Map<string, number>();
 
   constructor(options?: TtlDeduplicatorOptions) {
-    this.ttlMs = options?.ttlMs ?? 5 * 60 * 1000;
-    this.maxEntries = Math.max(1, options?.maxEntries ?? 4096);
+    this.ttlMs = options?.ttlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
+    this.maxEntries = Math.max(1, options?.maxEntries ?? DEFAULT_DEDUPLICATION_MAX_ENTRIES);
   }
 
   has(key: string, now: number = Date.now()): boolean {
