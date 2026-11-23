@@ -44,4 +44,16 @@ describe("Connector error hierarchy", () => {
     expect(valErr.code).toBe("CONNECTOR_VALIDATION_ERROR");
     expect(authErr.code).toBe("CONNECTOR_AUTH_ERROR");
   });
+
+  it("applies default code and retryable values when optional error metadata is omitted", () => {
+    const baseErr = new ConnectorError("Generic connector failure");
+    expect(baseErr.code).toBe("CONNECTOR_ERROR");
+    expect(baseErr.connectorName).toBeUndefined();
+    expect(baseErr.cause).toBeUndefined();
+
+    const defaultTransportErr = new ConnectorTransportError("Connection reset");
+    expect(defaultTransportErr.code).toBe("CONNECTOR_TRANSPORT_ERROR");
+    expect(defaultTransportErr.statusCode).toBeUndefined();
+    expect(defaultTransportErr.retryable).toBe(false);
+  });
 });
