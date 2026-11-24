@@ -8,6 +8,8 @@
     "enable": "启用",
     "save": "保存",
     "saved": "已保存。",
+    "saveFailed": "连接器设置没有保存成功。",
+    "secretSaved": "已保存",
     "unavailable": "宿主没有提供配置表单，连接器设置不可用。",
     "defaultOption": "使用连接器默认值",
     "platformList": "连接器",

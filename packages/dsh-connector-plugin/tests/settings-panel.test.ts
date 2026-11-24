@@ -11,6 +11,7 @@ import {
   type ConnectorSettingsHost,
 } from "../src/client";
 import { createSettingsDraft, reduceSettingsDraft } from "../src/client/draft";
+import { platformSettingsOps, secretWasRedacted } from "../src/client/persist";
 import { ConnectorSettingsPanel } from "../src/client/panel";
 
 function form(snapshot: ReturnType<ConfigFormHandle["getSnapshot"]>): ConfigFormHandle {
@@ -18,6 +19,7 @@ function form(snapshot: ReturnType<ConfigFormHandle["getSnapshot"]>): ConfigForm
     getSnapshot: () => ({ ...snapshot }),
     subscribe: () => () => {},
     set: () => true,
+    mutate: () => true,
   };
 }
 
@@ -138,6 +140,47 @@ describe("connector settings panel", () => {
     expect(cleared.platforms.telegram).toEqual({ enabled: true });
     expect(failed.status).toEqual({ kind: "error", text: "missing" });
     expect(selected.status).toBeUndefined();
+  });
+
+  it("writes changed platform leaves and keeps a redacted secret in place", () => {
+    const saved = platformSettingsOps(undefined, {
+      wecom: {
+        enabled: true,
+        mode: "aibotWs",
+        aibotWs: { botId: "bot-1", secret: "stored-secret" },
+      },
+    });
+    expect(saved).toEqual([
+      { op: "set", path: ["platforms", "wecom", "enabled"], value: true },
+      { op: "set", path: ["platforms", "wecom", "mode"], value: "aibotWs" },
+      { op: "set", path: ["platforms", "wecom", "aibotWs", "botId"], value: "bot-1" },
+      { op: "set", path: ["platforms", "wecom", "aibotWs", "secret"], value: "stored-secret" },
+    ]);
+
+    const redacted = {
+      wecom: {
+        enabled: true,
+        mode: "aibotWs",
+        aibotWs: { botId: "bot-1" },
+      },
+    };
+    expect(secretWasRedacted(redacted.wecom, "aibotWs.secret")).toBe(true);
+    expect(platformSettingsOps(redacted, redacted)).toEqual([]);
+    expect(
+      platformSettingsOps(redacted, {
+        wecom: {
+          enabled: true,
+          mode: "app",
+          app: { corpId: "ww", corpSecret: "corp-secret", agentId: "1" },
+        },
+      }),
+    ).toEqual([
+      { op: "set", path: ["platforms", "wecom", "mode"], value: "app" },
+      { op: "set", path: ["platforms", "wecom", "app", "corpId"], value: "ww" },
+      { op: "set", path: ["platforms", "wecom", "app", "corpSecret"], value: "corp-secret" },
+      { op: "set", path: ["platforms", "wecom", "app", "agentId"], value: "1" },
+      { op: "unset", path: ["platforms", "wecom", "aibotWs"] },
+    ]);
   });
 });
 

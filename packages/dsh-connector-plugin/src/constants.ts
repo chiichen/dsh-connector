@@ -5,6 +5,9 @@
 
 export const CONNECTOR_PLUGIN_NAME = "dsh-connector-plugin" as const;
 
+/** Config field edited by the Connectors settings section. */
+export const SETTINGS_PLATFORMS_KEY = "platforms" as const;
+
 export const LOG_INBOUND_RECEIVED = "Received inbound connector message" as const;
 export const LOG_INBOUND_FAILED = "Failed handling inbound connector message" as const;
 

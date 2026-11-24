@@ -14,6 +14,7 @@ import {
   mountConnectorPlugin,
 } from "../src";
 import { PLATFORM_CATALOG, fieldIsVisible } from "../src/platforms/catalog";
+import { readPlatformsConfig } from "../src/platforms/read";
 import { requireString } from "../src/platforms/instantiate";
 import {
   getPath,
@@ -206,6 +207,21 @@ const fullPlatforms: PlatformsConfig = {
 };
 
 describe("platform settings", () => {
+  it("marks platforms volatile so the settings host can persist the section", () => {
+    const dict = Reflect.get(Config, "dict");
+    expect(typeof dict).toBe("object");
+    if (typeof dict !== "object" || dict === null) return;
+    const field = Reflect.get(dict, "platforms");
+    const meta =
+      typeof field === "function" || (typeof field === "object" && field !== null)
+        ? Reflect.get(field, "meta")
+        : undefined;
+    if (typeof meta !== "object" || meta === null) {
+      throw new Error("platforms schema is missing meta");
+    }
+    expect(Reflect.get(meta, "volatile")).toBe(true);
+  });
+
   it("lists only options the connectors read", () => {
     const keys = PLATFORM_CATALOG.flatMap((platform) => platform.fields.map((field) => field.key));
     expect(keys).toEqual(
@@ -582,12 +598,13 @@ describe("platform settings", () => {
         feishu: { enabled: false, appSecret: "secret" },
       },
     });
-    expect(resolved.platforms?.telegram).toMatchObject({
+    const platforms = readPlatformsConfig(resolved.platforms);
+    expect(platforms?.telegram).toMatchObject({
       enabled: true,
       botToken: "123:abc",
       mode: "webhook",
     });
-    expect(resolved.platforms?.feishu).toMatchObject({ enabled: false, appSecret: "secret" });
+    expect(platforms?.feishu).toMatchObject({ enabled: false, appSecret: "secret" });
   });
 });
 
