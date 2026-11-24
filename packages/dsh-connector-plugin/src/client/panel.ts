@@ -5,78 +5,14 @@ import { PLATFORM_BY_ID, PLATFORM_CATALOG, fieldIsVisible, textOf } from "../pla
 import type { PlatformField, PlatformRecord, PlatformsConfig } from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
+import { settingsStyles } from "./settings.generated";
 
-const SETTINGS_CSS = `
-.dsh-connector-settings {
-  display: grid;
-  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
-  color: inherit;
-  font: inherit;
-}
-.dsh-connector-settings__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.dsh-connector-settings__tab {
-  text-align: left;
-  border: 0;
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.dsh-connector-settings__tab[aria-selected="true"] {
-  background: var(--accent, rgba(127, 127, 127, 0.16));
-}
-.dsh-connector-settings__panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
-  border: 0;
-  margin: 0;
-  padding: 0;
-}
-.dsh-connector-settings__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.dsh-connector-settings__check {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-}
-.dsh-connector-settings__field input,
-.dsh-connector-settings__field select,
-.dsh-connector-settings__field textarea {
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.45));
-  border-radius: 0.375rem;
-  padding: 0.4rem 0.5rem;
-}
-.dsh-connector-settings__hint,
-.dsh-connector-settings__detail {
-  margin: 0;
-  opacity: 0.8;
-}
-.dsh-connector-settings__error {
-  color: var(--danger, #b00020);
-  white-space: pre-wrap;
-}
-@media (max-width: 720px) {
-  .dsh-connector-settings {
-    grid-template-columns: 1fr;
-  }
-}
-`;
+const fieldClass = "flex flex-col gap-1";
+const checkClass = "flex flex-row items-center gap-2";
+const controlClass =
+  "rounded-md border border-solid bg-transparent px-2 py-[0.4rem] [font:inherit] text-inherit border-[var(--border,rgba(127,127,127,0.45))]";
+const hintClass = "m-0 opacity-80";
+const errorClass = "m-0 whitespace-pre-wrap text-[var(--danger,#b00020)]";
 
 type SettingsLocale = "en" | "zh";
 
@@ -144,7 +80,7 @@ function FieldControl(props: {
     return createElement(
       "label",
       {
-        className: "dsh-connector-settings__field dsh-connector-settings__check",
+        className: checkClass,
         htmlFor: inputId,
       },
       createElement("input", {
@@ -167,6 +103,7 @@ function FieldControl(props: {
       {
         id: inputId,
         name: field.key,
+        className: controlClass,
         value: stringValue(record, field.key),
         onChange: (event: { currentTarget: { value: string } }) => {
           const next = event.currentTarget.value;
@@ -182,6 +119,7 @@ function FieldControl(props: {
     control = createElement("textarea", {
       id: inputId,
       name: field.key,
+      className: controlClass,
       rows: 3,
       value: listValue(record, field.key),
       spellCheck: false,
@@ -194,6 +132,7 @@ function FieldControl(props: {
     control = createElement("input", {
       id: inputId,
       name: field.key,
+      className: controlClass,
       type: "number",
       step: "1",
       value: typeof current === "number" ? String(current) : "",
@@ -211,6 +150,7 @@ function FieldControl(props: {
     control = createElement("input", {
       id: inputId,
       name: field.key,
+      className: controlClass,
       type: field.kind === "secret" ? "password" : "text",
       value: stringValue(record, field.key),
       autoComplete: "off",
@@ -223,10 +163,10 @@ function FieldControl(props: {
 
   return createElement(
     "label",
-    { className: "dsh-connector-settings__field", htmlFor: inputId },
+    { className: fieldClass, htmlFor: inputId },
     createElement("span", null, label),
     control,
-    createElement("span", { className: "dsh-connector-settings__detail" }, detail),
+    createElement("span", { className: hintClass }, detail),
   );
 }
 
@@ -276,28 +216,30 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
           "p",
           {
             role: draft.status.kind === "error" ? "alert" : "status",
-            className:
-              draft.status.kind === "error"
-                ? "dsh-connector-settings__error"
-                : "dsh-connector-settings__hint",
+            className: draft.status.kind === "error" ? errorClass : hintClass,
           },
           draft.status.text,
         );
 
   return createElement(
     "div",
-    { className: "dsh-connector-settings", "data-connector-settings": draft.selectedId },
-    createElement("style", null, SETTINGS_CSS),
+    {
+      className:
+        "dsh-connector-settings grid grid-cols-1 items-start gap-5 [font:inherit] text-inherit min-[721px]:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)]",
+      "data-connector-settings": draft.selectedId,
+    },
+    createElement("style", null, settingsStyles),
     createElement(
       "nav",
-      { className: "dsh-connector-settings__nav", "aria-label": chrome.platformList },
+      { className: "flex flex-col gap-1", "aria-label": chrome.platformList },
       PLATFORM_CATALOG.map((platform) =>
         createElement(
           "button",
           {
             key: platform.id,
             type: "button",
-            className: "dsh-connector-settings__tab",
+            className:
+              "cursor-pointer rounded-lg border-0 bg-transparent px-3 py-2 text-left [font:inherit] text-inherit aria-selected:bg-[var(--accent,rgba(127,127,127,0.16))]",
             "data-platform": platform.id,
             role: "tab",
             "aria-selected": platform.id === draft.selectedId,
@@ -314,16 +256,15 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
       { onSubmit: (event: { preventDefault(): void }) => void onSubmit(event) },
       createElement(
         "fieldset",
-        { className: "dsh-connector-settings__panel", disabled: props.disabled === true },
+        {
+          className: "m-0 flex min-w-0 flex-col gap-3 border-0 p-0",
+          disabled: props.disabled === true,
+        },
         createElement("h2", null, textOf(definition.label, locale)),
-        createElement(
-          "p",
-          { className: "dsh-connector-settings__hint" },
-          textOf(definition.description, locale),
-        ),
+        createElement("p", { className: hintClass }, textOf(definition.description, locale)),
         createElement(
           "label",
-          { className: "dsh-connector-settings__field dsh-connector-settings__check" },
+          { className: checkClass },
           createElement("input", {
             name: "enabled",
             "data-field": "enabled",
@@ -354,7 +295,7 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
                   },
                 }),
               )
-          : createElement("p", { className: "dsh-connector-settings__hint" }, chrome.enableHint),
+          : createElement("p", { className: hintClass }, chrome.enableHint),
         status,
         createElement("button", { type: "submit" }, chrome.save),
       ),
