@@ -574,12 +574,12 @@ describe("mounting configured connectors", () => {
         contextStore: new DefaultContextSessionStore(),
         webhook: { enabled: false },
       });
-      const mergedRuntime = await merged.apply(host.ctx, {
+      const disposeMerged = await merged.apply(host.ctx, {
         platforms: { telegram: { enabled: true, botToken: "123:telegram", mode: "passive" } },
       });
-      expect(mergedRuntime.manager.getConnector("telegram")?.name).toBe("telegram");
-      expect(mergedRuntime.manager.getConnector("feishu")).toBeUndefined();
-      await mergedRuntime.dispose();
+      expect(host.ctx.tools.get("connector_send_telegram")).toBeDefined();
+      expect(host.ctx.tools.get("connector_send_feishu")).toBeUndefined();
+      await disposeMerged();
 
       const duplicate = defineConnector({
         name: "feishu",
