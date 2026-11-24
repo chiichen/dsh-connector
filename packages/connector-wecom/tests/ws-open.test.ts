@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WECOM_AIBOT_WS_URL } from "../src/constants";
-import { createWeComWebSocket, websocketRequestPath } from "../src/ws-open";
+import { createWeComWebSocket } from "../src/ws-open";
 
 const WEBSOCKET_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const TEXT_OPCODE = 0x81;
@@ -63,9 +63,11 @@ function readHeader(socket: Socket): Promise<string> {
 }
 
 describe("WeCom long-connection upgrade", () => {
-  it("requests the official address as origin-form GET /", () => {
-    expect(websocketRequestPath(DEFAULT_WECOM_AIBOT_WS_URL)).toBe("/");
-    expect(websocketRequestPath("wss://openws.work.weixin.qq.com")).toBe("/");
+  it("keeps the documented long-connection address", () => {
+    const url = new URL(DEFAULT_WECOM_AIBOT_WS_URL);
+    expect(url.protocol).toBe("wss:");
+    expect(url.hostname).toBe("openws.work.weixin.qq.com");
+    expect(url.pathname).toBe("/");
   });
 
   it("opens with Upgrade: websocket and receives a text frame", async () => {
