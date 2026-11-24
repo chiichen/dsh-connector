@@ -4,7 +4,7 @@
  * Unifies:
  * - Self-Built Application (`app` / `appchat`) HTTP callback reception + REST `gettoken` / `message/send` / `appchat/send`
  * - Group Custom Webhook Bot (`webhook/send?key=...`) outbound notifications
- * - Intelligent Bot (`智能机器人` / `aibot`) HTTP encrypted JSON callbacks (`response_url`) and WebSocket long connection (`wss://openws.work.weixin.qq.com`)
+ * - Intelligent Bot (`智能机器人` / `aibot`) HTTP encrypted JSON callbacks (`response_url`) and WebSocket long connection (`wss://openws.work.weixin.qq.com/`)
  * - Reserved streaming extension seam (`WeComStreamingAdapter` / `getStreamingAdapter()`)
  *
  * @see https://developer.work.weixin.qq.com/document/path/90930 Self-built app callback configuration

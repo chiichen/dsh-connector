@@ -11,7 +11,7 @@ Enterprise WeChat (WeCom / 企业微信) connector for DeepSeek Harness (`dsh`),
 2. **Group Custom Webhook Bot (`webhook`)**
    - Outbound `POST /cgi-bin/webhook/send?key=...` supporting `text` (`2,048` UTF-8 bytes, `mentioned_list`, `mentioned_mobile_list`), `markdown` (`4,096` UTF-8 bytes), and `markdown_v2` (`4,096` UTF-8 bytes).
 3. **Intelligent Bot (`智能机器人` / `aibot`)**
-   - **WebSocket Long Connection (`wss://openws.work.weixin.qq.com`)**: `aibot_subscribe` handshake, `30s` `ping` heartbeat, `aibot_msg_callback` / `aibot_event_callback` ingestion, `disconnected_event` kick protection, exponential backoff reconnection, and `aibot_send_msg` / `aibot_respond_msg` outbound delivery (`20,480` UTF-8 bytes).
+   - **WebSocket Long Connection (`wss://openws.work.weixin.qq.com/`)**: `aibot_subscribe` handshake, `30s` `ping` heartbeat, `aibot_msg_callback` / `aibot_event_callback` ingestion, `disconnected_event` kick protection, exponential backoff reconnection, and `aibot_send_msg` / `aibot_respond_msg` outbound delivery (`20,480` UTF-8 bytes).
    - **HTTP Callback Mode**: Encrypted JSON callback ingestion (`receiveId = ""`) and single-use 1-hour `response_url` reply correlation.
 
 ## Quick Start
