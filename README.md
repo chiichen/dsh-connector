@@ -45,6 +45,27 @@ A settings value of `both` or `hybrid` turns on the two methods in that row grou
 
 Discord gateway and interaction webhooks can both be enabled. They are not mutually exclusive forms.
 
+## dsh compatibility
+
+`engines.dsh` is `>=0.2.2-rc.2 <0.2.3-0`. The floor is the oldest published version where `pnpm --filter dsh-connector-plugin run test:dsh-host` passed both cases. The ceiling excludes `0.2.3-alpha.1` and `0.2.3-alpha.2`, which fail the settings-client case. `peerDependencies` are still `>=0.2.2-0 <0.3.0`.
+
+Each row installs every `@deepseek-ai/dsh-*` devDependency at that version and runs `tests/client-host.test.ts`. The client case loads the settings bundle through `@deepseek-ai/dsh-client-modules`. The server case activates the plugin on Cordis. Versions that are not in this table were not run.
+
+| dsh | Settings client | Server plugin |
+| --- | --- | --- |
+| 0.2.1-rc.5 | ❌ Cannot import `@deepseek-ai/dsh-client-modules/src/client/index.ts` | ❌ `@deepseek-ai/dsh-tools` `ToolsService` is not a Cordis plugin |
+| 0.2.2-alpha.2 | ❌ Same missing client entry | ✅ |
+| 0.2.2-alpha.3 | ❌ Same missing client entry | ✅ |
+| 0.2.2-rc.1 | ❌ Same missing client entry | ✅ |
+| 0.2.2-rc.2 | ✅ | ✅ |
+| 0.2.2-rc.3 | ✅ | ✅ |
+| 0.2.2-rc.4 | ✅ | ✅ |
+| 0.2.2-rc.5 | ✅ | ✅ |
+| 0.2.3-alpha.1 | ❌ `options.staticModules is not iterable` | ✅ |
+| 0.2.3-alpha.2 | ❌ `options.staticModules is not iterable` | ✅ |
+
+The earliest version with both cases passing is **0.2.2-rc.2**.
+
 ## Packages
 
 - `@dsh-connector/core` (`packages/connector-core`): Host-agnostic connector capability contracts, stateless `ConnectorContext` model, context marker codec, and error hierarchy (`zod` v4 peer dependency, zero `dsh` dependencies).
