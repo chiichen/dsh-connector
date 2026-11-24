@@ -11,13 +11,7 @@ import { PLATFORM_BY_ID, PLATFORM_CATALOG, fieldIsVisible, textOf } from "../pla
 import type { PlatformField, PlatformRecord, PlatformsConfig } from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
-
-const fieldClass = "flex flex-col gap-1";
-const checkClass = "flex flex-row items-center gap-2";
-const controlClass =
-  "rounded-md border border-solid bg-transparent px-2 py-[0.4rem] [font:inherit] text-inherit border-[var(--border,rgba(127,127,127,0.45))]";
-const hintClass = "m-0 opacity-80";
-const errorClass = "m-0 whitespace-pre-wrap text-[var(--danger,#b00020)]";
+import css from "./panel.module.css";
 
 type SettingsLocale = "en" | "zh";
 
@@ -83,7 +77,7 @@ function FieldControl(props: {
   if (field.kind === "boolean") {
     const checked = readOwn(record, field.key) === true;
     return (
-      <label className={checkClass} htmlFor={inputId}>
+      <label className={css.check} htmlFor={inputId}>
         <input
           id={inputId}
           name={field.key}
@@ -104,7 +98,7 @@ function FieldControl(props: {
       <select
         id={inputId}
         name={field.key}
-        className={controlClass}
+        className={css.control}
         value={stringValue(record, field.key)}
         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
           const next = event.currentTarget.value;
@@ -124,7 +118,7 @@ function FieldControl(props: {
       <textarea
         id={inputId}
         name={field.key}
-        className={controlClass}
+        className={css.control}
         rows={3}
         value={listValue(record, field.key)}
         spellCheck={false}
@@ -139,7 +133,7 @@ function FieldControl(props: {
       <input
         id={inputId}
         name={field.key}
-        className={controlClass}
+        className={css.control}
         type="number"
         step="1"
         value={typeof current === "number" ? String(current) : ""}
@@ -159,7 +153,7 @@ function FieldControl(props: {
       <input
         id={inputId}
         name={field.key}
-        className={controlClass}
+        className={css.control}
         type={field.kind === "secret" ? "password" : "text"}
         value={stringValue(record, field.key)}
         autoComplete="off"
@@ -172,10 +166,10 @@ function FieldControl(props: {
   }
 
   return (
-    <label className={fieldClass} htmlFor={inputId}>
+    <label className={css.field} htmlFor={inputId}>
       <span>{label}</span>
       {control}
-      <span className={hintClass}>{detail}</span>
+      <span className={css.hint}>{detail}</span>
     </label>
   );
 }
@@ -220,16 +214,13 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
   }
 
   return (
-    <div
-      className="dsh-connector-settings grid grid-cols-1 items-start gap-5 [font:inherit] text-inherit min-[721px]:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)]"
-      data-connector-settings={draft.selectedId}
-    >
-      <nav className="flex flex-col gap-1" aria-label={chrome.platformList}>
+    <div className={css.layout} data-connector-settings={draft.selectedId}>
+      <nav className={css.nav} aria-label={chrome.platformList}>
         {PLATFORM_CATALOG.map((platform) => (
           <button
             key={platform.id}
             type="button"
-            className="cursor-pointer rounded-lg border-0 bg-transparent px-3 py-2 text-left [font:inherit] text-inherit aria-selected:bg-[var(--accent,rgba(127,127,127,0.16))]"
+            className={css.tab}
             data-platform={platform.id}
             role="tab"
             aria-selected={platform.id === draft.selectedId}
@@ -242,17 +233,15 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
         ))}
       </nav>
       <form
+        className={css.form}
         onSubmit={(event) => {
           void onSubmit(event);
         }}
       >
-        <fieldset
-          className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0"
-          disabled={props.disabled === true}
-        >
-          <h2>{textOf(definition.label, locale)}</h2>
-          <p className={hintClass}>{textOf(definition.description, locale)}</p>
-          <label className={checkClass}>
+        <fieldset className={css.fields} disabled={props.disabled === true}>
+          <h2 className={css.title}>{textOf(definition.label, locale)}</h2>
+          <p className={css.hint}>{textOf(definition.description, locale)}</p>
+          <label className={css.check}>
             <input
               name="enabled"
               data-field="enabled"
@@ -284,17 +273,19 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
                 />
               ))
           ) : (
-            <p className={hintClass}>{chrome.enableHint}</p>
+            <p className={css.hint}>{chrome.enableHint}</p>
           )}
           {draft.status === undefined ? null : (
             <p
               role={draft.status.kind === "error" ? "alert" : "status"}
-              className={draft.status.kind === "error" ? errorClass : hintClass}
+              className={draft.status.kind === "error" ? css.error : css.hint}
             >
               {draft.status.text}
             </p>
           )}
-          <button type="submit">{chrome.save}</button>
+          <button className={css.save} type="submit">
+            {chrome.save}
+          </button>
         </fieldset>
       </form>
     </div>

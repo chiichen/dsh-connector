@@ -5,11 +5,14 @@ import { CONNECTOR_PLUGIN_NAME } from "../constants";
 import { isRecord } from "../platforms/records";
 import type { PlatformsConfig } from "../platforms/types";
 import { ConnectorSettingsPanel, normalizeLocale } from "./panel";
+import css from "./panel.module.css";
 
 /**
  * Settings page for the connector plugin.
  * The rail-and-form interaction follows dsh-im's per-platform settings page.
  * Field names come from each connector's constructor options, not from dsh-im.
+ * Presentation uses a CSS Module. The client build publishes it as
+ * `meta.stylesheets` for the DSH renderer; the host does not scan class names.
  */
 
 export const name = CONNECTOR_PLUGIN_NAME;
@@ -112,7 +115,11 @@ export function ConnectorSettingsEntry(props: {
   const locale = normalizeLocale(props.localeTag);
   if (props.form === undefined) {
     const chrome = locale === "zh" ? zhLocale.settings : enLocale.settings;
-    return <p role="status">{chrome.unavailable}</p>;
+    return (
+      <p className={css.hint} role="status">
+        {chrome.unavailable}
+      </p>
+    );
   }
   return <ConnectorSettingsForm form={props.form} locale={locale} />;
 }
