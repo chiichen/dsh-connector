@@ -120,6 +120,10 @@ async function resolveContextStore(
   return { store, openedDomain: domain };
 }
 
+/**
+ * Adapts Cordis `ctx.logger("dsh-connector-plugin")` to `ConnectorLogger`.
+ * dsh does not print `ctx.logger` to the terminal by default; the profile needs a log exporter to show these lines there.
+ */
 function adaptCordisLogger(ctx: Context, explicit?: ConnectorLogger): ConnectorLogger {
   if (explicit !== undefined) return explicit;
   const cordisLogger = ctx.logger(CONNECTOR_PLUGIN_NAME);
@@ -165,7 +169,7 @@ export async function mountConnectorPlugin(
 
   const manager = new ConnectorManager({
     connectors: [
-      ...createConnectorsFromPlatformConfig(config.platforms),
+      ...createConnectorsFromPlatformConfig(config.platforms, logger),
       ...(config.connectors ?? []),
     ],
     contextStore,

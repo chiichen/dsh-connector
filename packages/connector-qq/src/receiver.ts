@@ -3,6 +3,7 @@ import {
   extractContextMarker,
   type ConnectorContext,
   type ConnectorInboundPrompt,
+  type ConnectorLogger,
   type ConnectorReceiverContext,
   type ConnectorWebhookRequest,
   type ConnectorWebhookResponse,
@@ -213,6 +214,7 @@ export interface QqEventReceiverOptions<TName extends string = string> {
   readonly connectorName: TName;
   readonly appId: string;
   readonly clientSecret: string;
+  readonly logger?: ConnectorLogger;
   readonly botUserId?: string;
   readonly passiveTracker: QqPassiveReplyTracker;
   readonly now?: () => number;
@@ -238,9 +240,11 @@ export class QqEventReceiver<TName extends string = string> {
   private readonly passiveTracker: QqPassiveReplyTracker;
   private readonly now: () => number;
   private runtimeCtx: ConnectorReceiverContext<typeof qqReceiveSchema, TName> | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   constructor(options: QqEventReceiverOptions<TName>) {
     this.connectorName = options.connectorName;
+    this.hostLogger = options.logger;
     this.appId = options.appId.trim();
     this.clientSecret = options.clientSecret.trim();
     this.passiveTracker = options.passiveTracker;
@@ -258,7 +262,7 @@ export class QqEventReceiver<TName extends string = string> {
   }
 
   getLogger(): ConnectorReceiverContext<typeof qqReceiveSchema, TName>["logger"] | undefined {
-    return this.runtimeCtx?.logger;
+    return this.runtimeCtx?.logger ?? this.hostLogger;
   }
 
   /**

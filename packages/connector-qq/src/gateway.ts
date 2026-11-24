@@ -28,6 +28,8 @@ import {
   QQ_WS_CLOSE_INVALID_SESSION,
   QQ_WS_CLOSE_NORMAL,
   QQ_WS_CLOSE_SESSION_EXPIRED,
+  QQ_LOG_DISCONNECTED,
+  QQ_LOG_HANDSHAKE_FAILED,
   QQ_WS_FATAL_CLOSE_CODES,
 } from "./constants";
 import type { ConnectorLogger } from "@dsh-connector/core";
@@ -359,8 +361,14 @@ export class QqGatewayClient {
         }
 
         if (!settled && isInitialStart) {
+          const message = `QQ WebSocket closed before READY (code=${event.code}).`;
+          this.receiver.getLogger()?.error(QQ_LOG_HANDSHAKE_FAILED, {
+            connector: this.connectorName,
+            error: message,
+            code: event.code,
+          });
           settleReject(
-            new ConnectorTransportError(`QQ WebSocket closed before READY (code=${event.code}).`, {
+            new ConnectorTransportError(message, {
               connectorName: this.connectorName,
               retryable: true,
             }),
@@ -368,6 +376,10 @@ export class QqGatewayClient {
           return;
         }
 
+        this.receiver.getLogger()?.warn(QQ_LOG_DISCONNECTED, {
+          connector: this.connectorName,
+          code: event.code,
+        });
         this.scheduleReconnect();
       };
     });

@@ -9,6 +9,14 @@
 
 export const SLACK_CONNECTOR_VERSION = "0.1.0" as const;
 
+/**
+ * Socket Mode observations written through the host `ConnectorLogger`.
+ *
+ * @see https://docs.slack.dev/apis/events-api/using-socket-mode/
+ */
+export const SLACK_LOG_HANDSHAKE_FAILED = "Slack Socket Mode handshake failed" as const;
+export const SLACK_LOG_DISCONNECTED = "Slack Socket Mode disconnected" as const;
+
 export const DEFAULT_SLACK_CONNECTOR_NAME = "slack" as const;
 
 export const DEFAULT_SLACK_API_BASE_URL = "https://slack.com/api/" as const;

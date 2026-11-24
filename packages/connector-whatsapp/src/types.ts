@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
+import type { ConnectorLogger, ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
 import type { WhatsAppStreamingAdapter, WhatsAppStreamingOptions } from "./streaming";
 
 /**
@@ -154,6 +154,7 @@ export interface WhatsAppConnectorOptions<TName extends string = "whatsapp"> {
   readonly description?: string;
   readonly accessToken: WhatsAppAccessTokenProvider;
   readonly phoneNumberId: string;
+  readonly logger?: ConnectorLogger;
   readonly businessPhoneNumber?: string;
   readonly verifyToken?: string;
   readonly appSecret?: string;

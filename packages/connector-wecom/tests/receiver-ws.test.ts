@@ -16,6 +16,12 @@ import type {
   WeComWebSocketLike,
   WeComWebSocketMessageEvent,
 } from "../src/types";
+import {
+  WECOM_LOG_DISCONNECTED,
+  WECOM_LOG_HANDSHAKE_FAILED,
+  WECOM_LOG_MESSAGE_FAILED,
+  WECOM_LOG_MESSAGE_RECEIVED,
+} from "../src/constants";
 import { WeComAibotWsClient } from "../src/ws-client";
 
 class MockWebSocket implements WeComWebSocketLike {
@@ -458,5 +464,81 @@ describe("Stage 3: WeComAibotWsClient long connection & Receiver integration", (
       logger: createSilentLogger(),
     });
     await expect(prematureCloseClient.start()).rejects.toThrow(/closed before handshake/);
+  });
+
+  it("records handshake failure, received callbacks, handler failure, and disconnect on the provided logger", async () => {
+    const calls: Array<{ readonly level: "info" | "warn" | "error"; readonly message: string }> =
+      [];
+    const logger: ConnectorLogger = {
+      debug: () => {},
+      info: (message) => {
+        calls.push({ level: "info", message });
+      },
+      warn: (message) => {
+        calls.push({ level: "warn", message });
+      },
+      error: (message) => {
+        calls.push({ level: "error", message });
+      },
+    };
+
+    const handshakeClient = new WeComAibotWsClient({
+      connectorName: "wecom",
+      config: {
+        botId: "aibot_log",
+        secret: "sec",
+        autoReconnect: false,
+        createWebSocket: () => {
+          const ws = new MockWebSocket();
+          queueMicrotask(() => ws.close(1006, "closed early"));
+          return ws;
+        },
+      },
+      logger,
+    });
+    await expect(handshakeClient.start()).rejects.toThrow(/closed before handshake/);
+    expect(calls).toContainEqual({ level: "error", message: WECOM_LOG_HANDSHAKE_FAILED });
+
+    calls.length = 0;
+    let socket: MockWebSocket | undefined;
+    const client = new WeComAibotWsClient({
+      connectorName: "wecom",
+      config: {
+        botId: "aibot_log",
+        secret: "sec",
+        autoReconnect: false,
+        createWebSocket: () => {
+          const ws = new MockWebSocket();
+          socket = ws;
+          ws.onSendFrame = (frame, sock) => {
+            const headers = frame["headers"] as { req_id: string };
+            sock.triggerServerJson({
+              headers: { req_id: headers.req_id },
+              errcode: 0,
+              errmsg: "ok",
+            });
+          };
+          queueMicrotask(() => ws.triggerOpen());
+          return ws;
+        },
+      },
+      logger,
+      onMessageCallback: async () => {
+        throw new Error("handler boom");
+      },
+    });
+    await client.start();
+    socket?.triggerServerJson({
+      cmd: "aibot_msg_callback",
+      headers: { req_id: "inbound_req_1" },
+      body: { msgid: "m1" },
+    });
+    await vi.waitFor(() => {
+      expect(calls).toContainEqual({ level: "error", message: WECOM_LOG_MESSAGE_FAILED });
+    });
+    expect(calls).toContainEqual({ level: "info", message: WECOM_LOG_MESSAGE_RECEIVED });
+
+    socket?.close(1006, "dropped");
+    expect(calls).toContainEqual({ level: "warn", message: WECOM_LOG_DISCONNECTED });
   });
 });

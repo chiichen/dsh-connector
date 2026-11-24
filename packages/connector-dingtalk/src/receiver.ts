@@ -22,6 +22,8 @@ import {
   DINGTALK_DEFAULT_RECONNECT_MAX_DELAY_MS,
   DINGTALK_DEFAULT_SESSION_WEBHOOK_TTL_MS,
   DINGTALK_DEFAULT_WS_HANDSHAKE_TIMEOUT_MS,
+  DINGTALK_LOG_DISCONNECTED,
+  DINGTALK_LOG_HANDSHAKE_FAILED,
   DINGTALK_GATEWAY_OPEN_PATH,
   DINGTALK_RECONNECT_BACKOFF_FACTOR,
   DINGTALK_STREAM_ACK_MESSAGE_OK,
@@ -592,14 +594,16 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
         } catch {
           // Ignore
         }
+        const message = `DingTalk Stream WebSocket handshake timed out after ${this.wsHandshakeTimeoutMs}ms.`;
+        this.logger.error(DINGTALK_LOG_HANDSHAKE_FAILED, {
+          connectorName: this.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError(
-            `DingTalk Stream WebSocket handshake timed out after ${this.wsHandshakeTimeoutMs}ms.`,
-            {
-              connectorName: this.connectorName,
-              retryable: true,
-            },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.connectorName,
+            retryable: true,
+          }),
         );
       }, this.wsHandshakeTimeoutMs);
 
@@ -609,26 +613,30 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
       };
       const onError = (): void => {
         cleanup();
+        const message = "DingTalk Stream WebSocket connection error during handshake.";
+        this.logger.error(DINGTALK_LOG_HANDSHAKE_FAILED, {
+          connectorName: this.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError(
-            "DingTalk Stream WebSocket connection error during handshake.",
-            {
-              connectorName: this.connectorName,
-              retryable: true,
-            },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.connectorName,
+            retryable: true,
+          }),
         );
       };
       const onClose = (event: DingTalkCloseEventLike): void => {
         cleanup();
+        const message = `DingTalk Stream WebSocket closed during handshake (code ${event.code ?? 0}).`;
+        this.logger.error(DINGTALK_LOG_HANDSHAKE_FAILED, {
+          connectorName: this.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError(
-            `DingTalk Stream WebSocket closed during handshake (code ${event.code ?? 0}).`,
-            {
-              connectorName: this.connectorName,
-              retryable: true,
-            },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.connectorName,
+            retryable: true,
+          }),
         );
       };
       const onAbort = (): void => {
@@ -685,6 +693,11 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
 
       if (this.activeSocket === socket) {
         this.activeSocket = undefined;
+      }
+      if (this.streamRunning && !signal.aborted) {
+        this.logger.warn(DINGTALK_LOG_DISCONNECTED, {
+          connectorName: this.connectorName,
+        });
       }
       if (!this.streamRunning || signal.aborted || !this.autoReconnect) {
         return;

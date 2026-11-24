@@ -116,6 +116,7 @@ export class DiscordConnector<TName extends string = "discord"> implements Conne
   readonly #gateway: DiscordGatewayClient | undefined;
   readonly #streamingOptions: DiscordStreamingOptions | undefined;
   readonly #streamingAdapter: DiscordStreamingAdapter | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   constructor(options: DiscordConnectorOptions<TName>) {
     const resolvedName = (options.name ?? DISCORD_CONNECTOR_DEFAULT_NAME) as TName;
@@ -132,6 +133,7 @@ export class DiscordConnector<TName extends string = "discord"> implements Conne
     }
 
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? "Discord";
     this.description =
       options.description ??
@@ -190,7 +192,7 @@ export class DiscordConnector<TName extends string = "discord"> implements Conne
         createWebSocket: options.createWebSocket,
         reconnectDelaysMs: options.reconnectDelaysMs,
         randomFn: options.randomFn,
-        logger: options.logger,
+        logger: this.hostLogger,
         onMessageCreate: async (message, gatewayCtx) => {
           await this.#receiver.handleMessageCreate(message, gatewayCtx);
         },

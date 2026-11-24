@@ -37,6 +37,10 @@ import {
   WECOM_AIBOT_CMD_SUBSCRIBE,
   WECOM_AIBOT_EVENT_DISCONNECTED,
   WECOM_AUTH_ERRCODES,
+  WECOM_LOG_DISCONNECTED,
+  WECOM_LOG_HANDSHAKE_FAILED,
+  WECOM_LOG_MESSAGE_FAILED,
+  WECOM_LOG_MESSAGE_RECEIVED,
   WECOM_ERRCODE_OK,
   WECOM_WS_RECONNECT_BACKOFF_FACTOR,
 } from "./constants";
@@ -172,11 +176,19 @@ export class WeComAibotWsClient implements WeComAibotOutboundTransport {
       return this.startPromise;
     }
 
-    const run = this.connectAndSubscribe().finally(() => {
-      if (this.startPromise === run) {
-        this.startPromise = undefined;
-      }
-    });
+    const run = this.connectAndSubscribe()
+      .catch((error: unknown) => {
+        this.logger?.error(WECOM_LOG_HANDSHAKE_FAILED, {
+          connector: this.connectorName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      })
+      .finally(() => {
+        if (this.startPromise === run) {
+          this.startPromise = undefined;
+        }
+      });
     this.startPromise = run;
     return run;
   }
@@ -380,6 +392,7 @@ export class WeComAibotWsClient implements WeComAibotOutboundTransport {
   }
 
   private handleSocketClosed(): void {
+    const wasSubscribed = this.subscribed;
     this.subscribed = false;
     this.socket = undefined;
     if (this.heartbeatTimer !== undefined) {
@@ -392,6 +405,12 @@ export class WeComAibotWsClient implements WeComAibotOutboundTransport {
         retryable: true,
       }),
     );
+
+    if (wasSubscribed && !this.stopped && !this.kickedByNewConnection) {
+      this.logger?.warn(WECOM_LOG_DISCONNECTED, {
+        connector: this.connectorName,
+      });
+    }
 
     if (this.stopped || this.kickedByNewConnection || !this.autoReconnect) {
       return;
@@ -408,7 +427,11 @@ export class WeComAibotWsClient implements WeComAibotOutboundTransport {
       if (this.stopped || this.kickedByNewConnection) {
         return;
       }
-      this.connectAndSubscribe().catch((error) => {
+      this.connectAndSubscribe().catch((error: unknown) => {
+        this.logger?.error(WECOM_LOG_HANDSHAKE_FAILED, {
+          connector: this.connectorName,
+          error: error instanceof Error ? error.message : String(error),
+        });
         this.logger?.warn("WeCom Intelligent Bot WebSocket reconnect attempt failed", {
           connector: this.connectorName,
           error: String(error),
@@ -480,8 +503,12 @@ export class WeComAibotWsClient implements WeComAibotOutboundTransport {
     };
 
     if (cmd === WECOM_AIBOT_CMD_MSG_CALLBACK) {
+      this.logger?.info(WECOM_LOG_MESSAGE_RECEIVED, {
+        connector: this.connectorName,
+        reqId: callbackFrame.headers.req_id,
+      });
       Promise.resolve(this.onMessageCallback?.(callbackFrame)).catch((error) => {
-        this.logger?.error("Failed handling WeCom aibot_msg_callback frame", {
+        this.logger?.error(WECOM_LOG_MESSAGE_FAILED, {
           connector: this.connectorName,
           error: String(error),
         });

@@ -5,6 +5,13 @@
  */
 
 export const DEFAULT_TELEGRAM_CONNECTOR_NAME = "telegram" as const;
+
+/**
+ * Long-polling observations written through the host `ConnectorLogger`.
+ *
+ * @see https://core.telegram.org/bots/api#getting-updates
+ */
+export const TELEGRAM_LOG_HANDSHAKE_FAILED = "Telegram getUpdates handshake failed" as const;
 export const DEFAULT_TELEGRAM_DISPLAY_NAME = "Telegram" as const;
 export const DEFAULT_TELEGRAM_DESCRIPTION =
   "Send and receive Telegram messages via the official Telegram Bot API." as const;

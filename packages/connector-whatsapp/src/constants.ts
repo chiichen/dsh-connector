@@ -8,6 +8,13 @@
 
 export const WHATSAPP_CONNECTOR_VERSION = "0.1.0" as const;
 
+/**
+ * Webhook verification observations written through the host `ConnectorLogger`.
+ *
+ * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started
+ */
+export const WHATSAPP_LOG_HANDSHAKE_FAILED = "WhatsApp webhook handshake failed" as const;
+
 export const DEFAULT_WHATSAPP_CONNECTOR_NAME = "whatsapp" as const;
 export const DEFAULT_WHATSAPP_DISPLAY_NAME = "WhatsApp Business Cloud API" as const;
 export const DEFAULT_WHATSAPP_DESCRIPTION =

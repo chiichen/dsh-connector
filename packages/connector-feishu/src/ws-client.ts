@@ -9,6 +9,8 @@
 import { ConnectorTransportError, type ConnectorLogger } from "@dsh-connector/core";
 import {
   DEFAULT_WS_HANDSHAKE_TIMEOUT_MS,
+  FEISHU_LOG_DISCONNECTED,
+  FEISHU_LOG_HANDSHAKE_FAILED,
   DEFAULT_WS_PING_INTERVAL_MS,
   DEFAULT_WS_RECONNECT_COUNT,
   DEFAULT_WS_RECONNECT_INTERVAL_MS,
@@ -200,11 +202,16 @@ export class FeishuWsLongConnectionClient {
         } catch {
           // best effort
         }
+        const message = `Feishu WebSocket handshake timed out after ${this.handshakeTimeoutMs}ms.`;
+        this.logger?.error(FEISHU_LOG_HANDSHAKE_FAILED, {
+          connectorName: this.apiClient.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError(
-            `Feishu WebSocket handshake timed out after ${this.handshakeTimeoutMs}ms.`,
-            { connectorName: this.apiClient.connectorName, retryable: true },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.apiClient.connectorName,
+            retryable: true,
+          }),
         );
       }, this.handshakeTimeoutMs);
       timer.unref?.();
@@ -220,8 +227,13 @@ export class FeishuWsLongConnectionClient {
         if (settled) return;
         settled = true;
         cleanupHandshake();
+        const message = "Feishu WebSocket connection handshake failed.";
+        this.logger?.error(FEISHU_LOG_HANDSHAKE_FAILED, {
+          connectorName: this.apiClient.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError("Feishu WebSocket connection handshake failed.", {
+          new ConnectorTransportError(message, {
             connectorName: this.apiClient.connectorName,
             retryable: true,
           }),
@@ -269,6 +281,9 @@ export class FeishuWsLongConnectionClient {
 
     socket.addEventListener("close", () => {
       if (this.closed || expectedGen !== this.generation) return;
+      this.logger?.warn(FEISHU_LOG_DISCONNECTED, {
+        connectorName: this.apiClient.connectorName,
+      });
       this.clearTimers();
       this.activeSocket = undefined;
       if (this.autoReconnect) {

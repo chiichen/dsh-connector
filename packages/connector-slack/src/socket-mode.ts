@@ -2,6 +2,8 @@ import { ConnectorTransportError, type ConnectorLogger } from "@dsh-connector/co
 import type { SlackApiClient } from "./api-client";
 import {
   DEFAULT_SLACK_CONNECT_TIMEOUT_MS,
+  SLACK_LOG_DISCONNECTED,
+  SLACK_LOG_HANDSHAKE_FAILED,
   SLACK_RECONNECT_DELAYS_MS,
   SLACK_SOCKET_PACKET_DISCONNECT,
   SLACK_SOCKET_PACKET_EVENTS_API,
@@ -209,14 +211,16 @@ export class SlackSocketModeClient {
         } catch {
           // Ignore close error on timed-out socket.
         }
+        const message = `Slack Socket Mode did not receive "hello" within ${this.connectTimeoutMs}ms.`;
+        this.getLogger?.()?.error(SLACK_LOG_HANDSHAKE_FAILED, {
+          connector: this.connectorName,
+          error: message,
+        });
         reject(
-          new ConnectorTransportError(
-            `Slack Socket Mode did not receive "hello" within ${this.connectTimeoutMs}ms.`,
-            {
-              connectorName: this.connectorName,
-              retryable: true,
-            },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.connectorName,
+            retryable: true,
+          }),
         );
       }, this.connectTimeoutMs);
       connectTimer.unref?.();
@@ -311,14 +315,24 @@ export class SlackSocketModeClient {
 
         const closeCode =
           isPlainRecord(event) && typeof event["code"] === "number" ? event["code"] : 0;
+        const message = `Slack Socket Mode WebSocket closed (${closeCode || "unknown"}).`;
+        if (!settled) {
+          this.getLogger?.()?.error(SLACK_LOG_HANDSHAKE_FAILED, {
+            connector: this.connectorName,
+            error: message,
+            code: closeCode,
+          });
+        } else if (!this.stopped) {
+          this.getLogger?.()?.warn(SLACK_LOG_DISCONNECTED, {
+            connector: this.connectorName,
+            code: closeCode,
+          });
+        }
         finish(
-          new ConnectorTransportError(
-            `Slack Socket Mode WebSocket closed (${closeCode || "unknown"}).`,
-            {
-              connectorName: this.connectorName,
-              retryable: true,
-            },
-          ),
+          new ConnectorTransportError(message, {
+            connectorName: this.connectorName,
+            retryable: true,
+          }),
         );
         this.scheduleReconnect();
       });

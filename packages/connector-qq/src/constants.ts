@@ -13,6 +13,14 @@
 
 export const QQ_CONNECTOR_VERSION = "0.1.0" as const;
 
+/**
+ * Gateway observations written through the host `ConnectorLogger`.
+ *
+ * @see https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/event-emit/websocket.html
+ */
+export const QQ_LOG_HANDSHAKE_FAILED = "QQ WebSocket handshake failed" as const;
+export const QQ_LOG_DISCONNECTED = "QQ WebSocket disconnected" as const;
+
 export const QQ_DEFAULT_CONNECTOR_NAME = "qq" as const;
 export const QQ_DEFAULT_DISPLAY_NAME = "QQ Official Bot" as const;
 export const QQ_DEFAULT_DESCRIPTION =

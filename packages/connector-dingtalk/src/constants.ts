@@ -6,6 +6,14 @@
  */
 export const CONNECTOR_DINGTALK_VERSION = "0.1.0" as const;
 
+/**
+ * Stream observations written through the host `ConnectorLogger`.
+ *
+ * @see https://open.dingtalk.com/document/direction/stream-mode-protocol-access-description
+ */
+export const DINGTALK_LOG_HANDSHAKE_FAILED = "DingTalk Stream WebSocket handshake failed" as const;
+export const DINGTALK_LOG_DISCONNECTED = "DingTalk Stream WebSocket disconnected" as const;
+
 export const DEFAULT_DINGTALK_CONNECTOR_NAME = "dingtalk" as const;
 export const DEFAULT_DINGTALK_DISPLAY_NAME = "DingTalk" as const;
 export const DEFAULT_DINGTALK_DESCRIPTION =

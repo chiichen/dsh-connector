@@ -1,4 +1,9 @@
-import { assertValidConnectorName, defineConnector, type Connector } from "@dsh-connector/core";
+import {
+  assertValidConnectorName,
+  defineConnector,
+  type Connector,
+  type ConnectorLogger,
+} from "@dsh-connector/core";
 import { DingTalkAccessTokenManager } from "./auth";
 import {
   DEFAULT_DINGTALK_CONNECTOR_NAME,
@@ -52,11 +57,13 @@ export class DingTalkConnector<
   private readonly receiver: DingTalkReceiver<TName> | undefined;
   private readonly streamingOptions: DingTalkStreamingOptions<TName> | undefined;
   private readonly streamingAdapter: DingTalkStreamingAdapter<TName> | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   constructor(options?: DingTalkConnectorOptions<TName>) {
     const resolvedName = (options?.name ?? DEFAULT_DINGTALK_CONNECTOR_NAME) as TName;
     assertValidConnectorName(resolvedName);
     this.name = resolvedName;
+    this.hostLogger = options?.logger;
     this.displayName = options?.displayName ?? DEFAULT_DINGTALK_DISPLAY_NAME;
     this.description = options?.description ?? DEFAULT_DINGTALK_DESCRIPTION;
 
@@ -122,7 +129,7 @@ export class DingTalkConnector<
             fetchFn: options?.fetchFn,
             createWebSocket: options?.createWebSocket,
             now: options?.now,
-            logger: options?.logger,
+            logger: this.hostLogger,
           });
 
     this.streamingOptions = options?.streaming;

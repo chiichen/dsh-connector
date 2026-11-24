@@ -1,4 +1,4 @@
-import type { ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
+import type { ConnectorLogger, ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
 import { z } from "zod";
 import type { TelegramStreamingAdapter, TelegramStreamingOptions } from "./streaming";
 
@@ -332,6 +332,7 @@ export interface TelegramConnectorOptions<TName extends string = "telegram"> {
   readonly displayName?: string;
   readonly description?: string;
   readonly botToken: string;
+  readonly logger?: ConnectorLogger;
   readonly apiBaseUrl?: string;
   readonly fetchFn?: typeof fetch;
   readonly sleepFn?: TelegramSleepFn;
