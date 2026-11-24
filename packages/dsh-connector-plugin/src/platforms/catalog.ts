@@ -129,6 +129,12 @@ const WECOM_APP = [WECOM_CONNECTION_APP] as const;
 const WECOM_CALLBACK = [WECOM_CONNECTION_CALLBACK] as const;
 const WECOM_AIBOT_WS = [WECOM_CONNECTION_AIBOT_WS] as const;
 
+/** Inbound messages wait in the session queue. */
+const DELIVERY_QUEUE = "queue" as const;
+/** Inbound messages steer the active session. */
+const DELIVERY_STEER = "steer" as const;
+const DELIVERY_MODES = [DELIVERY_QUEUE, DELIVERY_STEER] as const;
+
 const feishu: PlatformDefinition = {
   id: "feishu",
   label: { en: "Feishu", zh: "飞书" },
@@ -670,7 +676,8 @@ const wecom: PlatformDefinition = {
       "入站投递",
       "How inbound messages enter the agent session.",
       "入站消息如何进入 Agent 会话。",
-      ["queue", "steer"],
+      DELIVERY_MODES,
+      { defaultChoice: DELIVERY_QUEUE },
     ),
   ],
 };
@@ -1164,7 +1171,12 @@ function recordWithDisplayedDefaults(
   for (const field of PLATFORM_BY_ID[platformId].fields) {
     if (field.kind !== "enum" || field.defaultChoice === undefined) continue;
     if (storedChoice(next, field.key).length > 0) continue;
-    if (defaultWouldDropStoredFields(platformId, next, field.defaultChoice)) continue;
+    if (
+      field.key === "mode" &&
+      defaultWouldDropStoredFields(platformId, next, field.defaultChoice)
+    ) {
+      continue;
+    }
     next = setPath(next, field.key, field.defaultChoice);
   }
   return next;
