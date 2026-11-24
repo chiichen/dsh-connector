@@ -25,7 +25,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown && tsdown --config tsdown.client.config.ts",
+    "build": "node scripts/compile-settings-styles.mjs && tsdown && tsdown --config tsdown.client.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",
     "lint": "eslint .",
@@ -64,6 +64,7 @@
     "@deepseek-ai/dsh-util-values": "0.2.2-rc.5",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "@tailwindcss/cli": "^4.3.5",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
@@ -74,6 +75,7 @@
     "oxlint": "1.94.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tailwindcss": "^4.3.5",
     "tsdown": "^0.23.7",
     "typescript": "7.0.2",
     "vitest": "5.1.1"
