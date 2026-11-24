@@ -28,7 +28,7 @@ describe("Stage 1: WeCom constants, context target addressing, schemas, and stre
   it("exposes official WeCom protocol constants", () => {
     expect(DEFAULT_WECOM_CONNECTOR_NAME).toBe("wecom");
     expect(DEFAULT_WECOM_API_BASE_URL).toBe("https://qyapi.weixin.qq.com");
-    expect(DEFAULT_WECOM_AIBOT_WS_URL).toBe("wss://openws.work.weixin.qq.com");
+    expect(DEFAULT_WECOM_AIBOT_WS_URL).toBe("wss://openws.work.weixin.qq.com/");
     expect(WECOM_APP_TEXT_MAX_BYTES).toBe(2048);
     expect(WECOM_WEBHOOK_MARKDOWN_MAX_BYTES).toBe(4096);
     expect(WECOM_AIBOT_MARKDOWN_MAX_BYTES).toBe(20480);

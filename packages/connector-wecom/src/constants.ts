@@ -19,7 +19,14 @@ export const DEFAULT_WECOM_DESCRIPTION =
   "Send and receive Enterprise WeChat (WeCom) messages across self-built apps, group webhooks, and intelligent bots." as const;
 
 export const DEFAULT_WECOM_API_BASE_URL = "https://qyapi.weixin.qq.com" as const;
-export const DEFAULT_WECOM_AIBOT_WS_URL = "wss://openws.work.weixin.qq.com" as const;
+
+/**
+ * Intelligent Bot long-connection address from the official API mode guide.
+ * The host is opened as origin-form `GET /`.
+ *
+ * @see https://developer.work.weixin.qq.com/document/path/101463
+ */
+export const DEFAULT_WECOM_AIBOT_WS_URL = "wss://openws.work.weixin.qq.com/" as const;
 
 export const WECOM_GETTOKEN_PATH = "/cgi-bin/gettoken" as const;
 export const WECOM_APP_MESSAGE_SEND_PATH = "/cgi-bin/message/send" as const;

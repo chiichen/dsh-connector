@@ -1,7 +1,7 @@
 /**
  * Enterprise WeChat (WeCom) Intelligent Bot (`智能机器人`) WebSocket long-connection client.
  *
- * Implements the official `wss://openws.work.weixin.qq.com` frame protocol:
+ * Implements the official `wss://openws.work.weixin.qq.com/` frame protocol:
  * - Handshake authentication via `aibot_subscribe` (`bot_id` + `secret`)
  * - Periodic keep-alive via `ping` frames (default every 30s)
  * - Inbound message (`aibot_msg_callback`) and event (`aibot_event_callback`) dispatch
@@ -45,6 +45,7 @@ import {
   WECOM_WS_RECONNECT_BACKOFF_FACTOR,
 } from "./constants";
 import type { WeComAibotOutboundTransport } from "./sender";
+import { createWeComWebSocket } from "./ws-open";
 import type {
   CreateWeComWebSocket,
   WeComAibotWsConfig,
@@ -94,7 +95,7 @@ function decodeWsMessageData(data: WeComWebSocketMessageEvent["data"]): string {
 }
 
 function defaultCreateWebSocket(url: string): WeComWebSocketLike {
-  return new WebSocket(url) as unknown as WeComWebSocketLike;
+  return createWeComWebSocket(url);
 }
 
 export class WeComAibotWsClient implements WeComAibotOutboundTransport {
