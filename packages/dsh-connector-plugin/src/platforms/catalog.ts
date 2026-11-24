@@ -105,8 +105,52 @@ function list(
 
 const lines = list;
 
-const OFFICIAL = ["official-account"] as const;
-const ILINK = ["ilink"] as const;
+const WEIXIN_MODE_OFFICIAL = "official-account" as const;
+const WEIXIN_MODE_ILINK = "ilink" as const;
+const OFFICIAL = [WEIXIN_MODE_OFFICIAL] as const;
+const ILINK = [WEIXIN_MODE_ILINK] as const;
+const WEIXIN_MODES = [WEIXIN_MODE_OFFICIAL, WEIXIN_MODE_ILINK] as const;
+const WEIXIN_TOKEN_STABLE = "stable" as const;
+const WEIXIN_TOKEN_STRATEGIES = [WEIXIN_TOKEN_STABLE, "classic"] as const;
+
+const FEISHU_MODE_WEBHOOK = "webhook" as const;
+const FEISHU_MODES = [FEISHU_MODE_WEBHOOK, "websocket", "both"] as const;
+const FEISHU_MENTION_REQUIRED = "mention-required" as const;
+const FEISHU_MENTION_POLICIES = [FEISHU_MENTION_REQUIRED, "all"] as const;
+const CONTEXT_MARKER_AUTO = "auto" as const;
+const CONTEXT_MARKERS = [CONTEXT_MARKER_AUTO, "always", "never"] as const;
+const TEXT_FORMAT = "text" as const;
+const TEXT_FORMATS = [TEXT_FORMAT, "markdown"] as const;
+
+const DINGTALK_INBOUND_STREAM = "stream" as const;
+const DINGTALK_INBOUND_WEBHOOK = "webhook" as const;
+const DINGTALK_INBOUND_MODES = [
+  DINGTALK_INBOUND_STREAM,
+  DINGTALK_INBOUND_WEBHOOK,
+  "both",
+  "none",
+] as const;
+
+const QQ_TRANSPORT_WEBHOOK = "webhook" as const;
+const QQ_TRANSPORTS = [QQ_TRANSPORT_WEBHOOK, "websocket", "both"] as const;
+const QQ_FORMAT_PLAIN = "plain" as const;
+const QQ_FORMATS = [QQ_FORMAT_PLAIN, "markdown"] as const;
+
+const SLACK_MODE_SOCKET = "socket" as const;
+const SLACK_MODE_WEBHOOK = "webhook" as const;
+const SLACK_MODE_HYBRID = "hybrid" as const;
+const SLACK_MODES = [SLACK_MODE_SOCKET, SLACK_MODE_WEBHOOK, SLACK_MODE_HYBRID] as const;
+const SLACK_THREAD_ALL = "all" as const;
+const SLACK_THREAD_POLICIES = [SLACK_THREAD_ALL, "participating", "mention-only"] as const;
+
+const TELEGRAM_MODE_POLLING = "polling" as const;
+const TELEGRAM_MODE_WEBHOOK = "webhook" as const;
+const TELEGRAM_MODES = [TELEGRAM_MODE_POLLING, TELEGRAM_MODE_WEBHOOK, "passive"] as const;
+const TELEGRAM_GROUP_MENTION = "mention" as const;
+const TELEGRAM_GROUP_TRIGGERS = [TELEGRAM_GROUP_MENTION, "all", "off"] as const;
+
+const DISCORD_ARCHIVE_ONE_DAY = "1440" as const;
+const DISCORD_ARCHIVE_MINUTES = ["60", DISCORD_ARCHIVE_ONE_DAY, "4320", "10080"] as const;
 
 /** Stored `mode` for a WeCom self-built app. */
 export const WECOM_CONNECTION_APP = "app" as const;
@@ -178,11 +222,15 @@ const feishu: PlatformDefinition = {
       "Optional encrypt key for webhook decryption and request signatures.",
       "可选。用于事件订阅解密与签名校验的 Encrypt Key。",
     ),
-    choice("mode", "Receive mode", "接收方式", "Inbound transport.", "入站传输方式。", [
-      "webhook",
-      "websocket",
-      "both",
-    ]),
+    choice(
+      "mode",
+      "Receive mode",
+      "接收方式",
+      "Inbound transport.",
+      "入站传输方式。",
+      FEISHU_MODES,
+      { defaultChoice: FEISHU_MODE_WEBHOOK },
+    ),
     text(
       "botOpenId",
       "Bot open_id",
@@ -210,7 +258,8 @@ const feishu: PlatformDefinition = {
       "群聊触发",
       "How group chats wake the bot.",
       "群聊如何唤醒机器人。",
-      ["mention-required", "all"],
+      FEISHU_MENTION_POLICIES,
+      { defaultChoice: FEISHU_MENTION_REQUIRED },
     ),
     bool(
       "allowAtAllInGroup",
@@ -239,7 +288,8 @@ const feishu: PlatformDefinition = {
       "上下文标记",
       "When to attach an outbound context marker.",
       "何时附带出站上下文标记。",
-      ["auto", "always", "never"],
+      CONTEXT_MARKERS,
+      { defaultChoice: CONTEXT_MARKER_AUTO },
     ),
     choice(
       "defaultOutboundFormat",
@@ -247,7 +297,8 @@ const feishu: PlatformDefinition = {
       "默认消息格式",
       "Outbound format used when a send omits format.",
       "发送时未指定格式则使用该格式。",
-      ["text", "markdown"],
+      TEXT_FORMATS,
+      { defaultChoice: TEXT_FORMAT },
     ),
   ],
 };
@@ -266,7 +317,8 @@ const weixin: PlatformDefinition = {
       "模式",
       "Official Account callbacks or iLink long polling.",
       "公众号回调或 iLink 长轮询。",
-      ["official-account", "ilink"],
+      WEIXIN_MODES,
+      { defaultChoice: WEIXIN_MODE_OFFICIAL },
     ),
     text("appId", "App ID", "AppID", "Official Account AppID (wx...).", "公众号 AppID（wx...）。", {
       modes: OFFICIAL,
@@ -323,9 +375,10 @@ const weixin: PlatformDefinition = {
       "令牌策略",
       "How the connector fetches an access token.",
       "获取 access_token 的方式。",
-      ["stable", "classic"],
+      WEIXIN_TOKEN_STRATEGIES,
       {
         modes: OFFICIAL,
+        defaultChoice: WEIXIN_TOKEN_STABLE,
       },
     ),
     text(
@@ -401,8 +454,8 @@ const dingtalk: PlatformDefinition = {
   id: "dingtalk",
   label: { en: "DingTalk", zh: "钉钉" },
   description: {
-    en: "DingTalk internal app. Client ID and Client Secret are optional. When both are set and inbound mode is empty, the connector uses Stream.",
-    zh: "钉钉企业内部应用。Client ID 与 Client Secret 可选。两者都填写且未选择入站方式时，连接器使用 Stream。",
+    en: "DingTalk internal app. Client ID and Client Secret are optional. Inbound mode shows Stream when both are set, and Webhook otherwise, until you choose one.",
+    zh: "钉钉企业内部应用。Client ID 与 Client Secret 可选。两者都填写时入站方式显示 Stream，否则显示 Webhook，直到你改选。",
   },
   fields: [
     text(
@@ -451,9 +504,9 @@ const dingtalk: PlatformDefinition = {
       "inboundMode",
       "Inbound mode",
       "入站方式",
-      "Stream opens a WebSocket on start. Webhook waits for HTTP callbacks.",
-      "Stream 会在启动时连接 WebSocket。Webhook 只接收 HTTP 回调。",
-      ["stream", "webhook", "both", "none"],
+      "Stream opens a WebSocket on start. Webhook waits for HTTP callbacks. The selected mode follows the credentials until you choose one.",
+      "Stream 会在启动时连接 WebSocket。Webhook 只接收 HTTP 回调。未改选前，显示结果跟随凭据。",
+      DINGTALK_INBOUND_MODES,
     ),
     bool(
       "preferSessionWebhook",
@@ -468,7 +521,8 @@ const dingtalk: PlatformDefinition = {
       "默认消息格式",
       "Outbound format used when a send omits format.",
       "发送时未指定格式则使用该格式。",
-      ["text", "markdown"],
+      TEXT_FORMATS,
+      { defaultChoice: TEXT_FORMAT },
     ),
     bool(
       "requireAtInGroup",
@@ -712,7 +766,8 @@ const qq: PlatformDefinition = {
       "传输方式",
       "Webhook, gateway WebSocket, or both.",
       "Webhook、网关 WebSocket，或两者。",
-      ["webhook", "websocket", "both"],
+      QQ_TRANSPORTS,
+      { defaultChoice: QQ_TRANSPORT_WEBHOOK },
     ),
     text("apiBaseUrl", "API base URL", "API 基址", "QQ OpenAPI base URL.", "QQ OpenAPI 基址。"),
     text("tokenUrl", "Token URL", "令牌地址", "OAuth token URL.", "OAuth 令牌地址。"),
@@ -729,7 +784,8 @@ const qq: PlatformDefinition = {
       "默认消息格式",
       "Outbound format used when a send omits format.",
       "发送时未指定格式则使用该格式。",
-      ["plain", "markdown"],
+      QQ_FORMATS,
+      { defaultChoice: QQ_FORMAT_PLAIN },
     ),
     bool(
       "includeContextMarker",
@@ -788,9 +844,9 @@ const slack: PlatformDefinition = {
       "mode",
       "Mode",
       "模式",
-      "Leave empty to infer socket, webhook, or hybrid from the tokens above.",
-      "留空时根据上面的令牌推断 socket、webhook 或 hybrid。",
-      ["socket", "webhook", "hybrid"],
+      "Socket, webhook, or hybrid. Shows the mode implied by the tokens above until you choose one.",
+      "Socket、Webhook 或 Hybrid。未改选前显示由上面令牌推断出的模式。",
+      SLACK_MODES,
     ),
     text(
       "botUserId",
@@ -813,7 +869,8 @@ const slack: PlatformDefinition = {
       "线程回复策略",
       "Which thread messages the bot accepts.",
       "机器人接收哪些线程消息。",
-      ["all", "participating", "mention-only"],
+      SLACK_THREAD_POLICIES,
+      { defaultChoice: SLACK_THREAD_ALL },
     ),
     choice(
       "deliveryMode",
@@ -821,7 +878,8 @@ const slack: PlatformDefinition = {
       "入站投递",
       "How inbound messages enter the agent session.",
       "入站消息如何进入 Agent 会话。",
-      ["queue", "steer"],
+      DELIVERY_MODES,
+      { defaultChoice: DELIVERY_QUEUE },
     ),
     bool(
       "includeContextMarker",
@@ -858,8 +916,8 @@ const telegram: PlatformDefinition = {
   id: "telegram",
   label: { en: "Telegram", zh: "Telegram" },
   description: {
-    en: "Telegram bot token from BotFather. Empty mode polls unless a webhook secret is set, which selects webhook.",
-    zh: "来自 BotFather 的 Telegram 机器人令牌。模式留空时默认轮询；填写了 Webhook Secret 且未选择模式时使用 Webhook。",
+    en: "Telegram bot token from BotFather. Mode shows polling, or webhook when a webhook secret is set, until you choose one.",
+    zh: "来自 BotFather 的 Telegram 机器人令牌。未改选前，填写了 Webhook Secret 时显示 Webhook，否则显示轮询。",
   },
   fields: [
     secret(
@@ -873,9 +931,9 @@ const telegram: PlatformDefinition = {
       "mode",
       "Mode",
       "模式",
-      "Polling opens a long-poll loop on start. Webhook and passive wait for HTTP.",
-      "Polling 会在启动后长轮询。Webhook 与 passive 等待 HTTP。",
-      ["polling", "webhook", "passive"],
+      "Polling opens a long-poll loop on start. Webhook and passive wait for HTTP. The selected mode follows the webhook secret until you choose one.",
+      "Polling 会在启动后长轮询。Webhook 与 passive 等待 HTTP。未改选前，显示结果跟随 Webhook Secret。",
+      TELEGRAM_MODES,
     ),
     secret(
       "webhookSecretToken",
@@ -919,7 +977,8 @@ const telegram: PlatformDefinition = {
       "群聊触发",
       "How group chats wake the bot.",
       "群聊如何唤醒机器人。",
-      ["mention", "all", "off"],
+      TELEGRAM_GROUP_TRIGGERS,
+      { defaultChoice: TELEGRAM_GROUP_MENTION },
     ),
     lines(
       "allowedChatIds",
@@ -948,7 +1007,8 @@ const telegram: PlatformDefinition = {
       "入站投递",
       "How inbound messages enter the agent session.",
       "入站消息如何进入 Agent 会话。",
-      ["queue", "steer"],
+      DELIVERY_MODES,
+      { defaultChoice: DELIVERY_QUEUE },
     ),
     bool(
       "includeContextMarker",
@@ -1037,7 +1097,8 @@ const discord: PlatformDefinition = {
       "帖子自动归档",
       "Auto-archive duration in minutes for threads created on mention.",
       "因 @ 创建的帖子的自动归档时间（分钟）。",
-      ["60", "1440", "4320", "10080"],
+      DISCORD_ARCHIVE_MINUTES,
+      { defaultChoice: DISCORD_ARCHIVE_ONE_DAY },
     ),
     bool(
       "includeContextMarker",
@@ -1193,10 +1254,49 @@ export function platformsWithDisplayedDefaults(platforms: PlatformsConfig): Plat
   return next;
 }
 
+function storedText(record: PlatformRecord | undefined, key: string): string {
+  if (record === undefined) return "";
+  const value = getPath(record, key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Choice shown when the connector itself infers the value from other fields.
+ * These are not written back until the user picks one, so later token edits can still change the inference.
+ */
+export function inferredEnumChoice(
+  platformId: PlatformId,
+  field: PlatformField,
+  record: PlatformRecord | undefined,
+): string | undefined {
+  if (platformId === "slack" && field.key === "mode") {
+    const hasAppToken = storedText(record, "appToken").length > 0;
+    const hasSigningSecret = storedText(record, "signingSecret").length > 0;
+    if (hasAppToken && hasSigningSecret) return SLACK_MODE_HYBRID;
+    if (hasAppToken) return SLACK_MODE_SOCKET;
+    return SLACK_MODE_WEBHOOK;
+  }
+  if (platformId === "dingtalk" && field.key === "inboundMode") {
+    const hasClientId = storedText(record, "clientId").length > 0;
+    const hasClientSecret = storedText(record, "clientSecret").length > 0;
+    return hasClientId && hasClientSecret ? DINGTALK_INBOUND_STREAM : DINGTALK_INBOUND_WEBHOOK;
+  }
+  if (platformId === "telegram" && field.key === "mode") {
+    return storedText(record, "webhookSecretToken").length > 0
+      ? TELEGRAM_MODE_WEBHOOK
+      : TELEGRAM_MODE_POLLING;
+  }
+  return undefined;
+}
+
 function visibleMode(platformId: PlatformId, record: PlatformRecord | undefined): string {
   const rawMode = record?.mode;
   if (typeof rawMode === "string" && rawMode.trim() !== "") return rawMode.trim();
   const modeField = PLATFORM_BY_ID[platformId].fields.find((field) => field.key === "mode");
   if (modeField?.defaultChoice !== undefined) return modeField.defaultChoice;
-  return platformId === "weixin" ? "official-account" : "";
+  if (modeField !== undefined) {
+    const inferred = inferredEnumChoice(platformId, modeField, record);
+    if (inferred !== undefined) return inferred;
+  }
+  return "";
 }

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { ConnectorSettingsEntry, type ConfigFormHandle } from "../src/client";
 import { ConnectorSettingsPanel } from "../src/client/panel";
-import type { PlatformsConfig } from "../src/platforms/types";
+import { PLATFORM_IDS, type PlatformsConfig } from "../src/platforms/types";
 
 async function render(node: ReturnType<typeof createElement>): Promise<{
   container: HTMLDivElement;
@@ -97,7 +97,9 @@ describe("connector settings interaction", () => {
           enabled: true,
           botToken: "123456:telegram",
           mode: "webhook",
+          groupTriggerMode: "mention",
           allowedChatIds: ["10", "20"],
+          inboundDeliveryMode: "queue",
           includeContextMarker: true,
         },
       },
@@ -247,6 +249,14 @@ describe("connector settings interaction", () => {
         { op: "set", path: ["platforms", "feishu", "enabled"], value: true },
         { op: "set", path: ["platforms", "feishu", "appId"], value: "cli_from_ui" },
         { op: "set", path: ["platforms", "feishu", "appSecret"], value: "ui-secret" },
+        { op: "set", path: ["platforms", "feishu", "mode"], value: "webhook" },
+        {
+          op: "set",
+          path: ["platforms", "feishu", "groupMentionPolicy"],
+          value: "mention-required",
+        },
+        { op: "set", path: ["platforms", "feishu", "contextMarker"], value: "auto" },
+        { op: "set", path: ["platforms", "feishu", "defaultOutboundFormat"], value: "text" },
       ],
     ]);
 
@@ -343,5 +353,68 @@ describe("connector settings interaction", () => {
     expect(restoredSecret.value).toBe("");
     expect(entry.container.querySelector("[data-secret-saved]")?.textContent).toContain("Saved");
     await unmount(entry);
+  });
+
+  it("selects a named option in every connector enum", async () => {
+    const view = await render(
+      createElement(ConnectorSettingsPanel, { platforms: {}, onSave: () => {} }),
+    );
+    for (const id of PLATFORM_IDS) {
+      await act(async () => {
+        view.container
+          .querySelector(`[data-platform="${id}"]`)
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      const enabled = view.container.querySelector('[data-field="enabled"]');
+      if (!(enabled instanceof HTMLInputElement))
+        throw new Error(`missing enable toggle for ${id}`);
+      if (!enabled.checked) {
+        await act(async () => {
+          enabled.click();
+        });
+      }
+      const selects = [...view.container.querySelectorAll("select")];
+      if (id !== "whatsapp") expect(selects.length).toBeGreaterThan(0);
+      for (const select of selects) {
+        if (!(select instanceof HTMLSelectElement)) continue;
+        expect(select.value, select.name).not.toBe("");
+        expect([...select.options].map((option) => option.value)).not.toContain("");
+      }
+      expect(view.container.textContent).not.toContain("Connector default");
+    }
+
+    await act(async () => {
+      view.container
+        .querySelector('[data-platform="dingtalk"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const clientId = view.container.querySelector('input[name="clientId"]');
+    const clientSecret = view.container.querySelector('input[name="clientSecret"]');
+    if (!(clientId instanceof HTMLInputElement) || !(clientSecret instanceof HTMLInputElement)) {
+      throw new Error("DingTalk credentials were not rendered");
+    }
+    await act(async () => {
+      setControlValue(clientId, "ding-client");
+      setControlValue(clientSecret, "ding-secret");
+    });
+    const inbound = view.container.querySelector('select[name="inboundMode"]');
+    if (!(inbound instanceof HTMLSelectElement)) throw new Error("missing DingTalk inbound mode");
+    expect(inbound.value).toBe("stream");
+
+    await act(async () => {
+      view.container
+        .querySelector('[data-platform="telegram"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const webhookSecret = view.container.querySelector('input[name="webhookSecretToken"]');
+    if (!(webhookSecret instanceof HTMLInputElement)) throw new Error("missing Telegram secret");
+    const telegramMode = view.container.querySelector('select[name="mode"]');
+    if (!(telegramMode instanceof HTMLSelectElement)) throw new Error("missing Telegram mode");
+    expect(telegramMode.value).toBe("polling");
+    await act(async () => {
+      setControlValue(webhookSecret, "hook-secret");
+    });
+    expect(telegramMode.value).toBe("webhook");
+    await unmount(view);
   });
 });
