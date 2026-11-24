@@ -77,6 +77,7 @@ describe("connector settings panel", () => {
     expect(wecom).toContain("HTTP callback");
     expect(wecom).toContain("AI bot long connection");
     expect(wecom).toContain('name="aibotWs.botId"');
+    expect(wecom).not.toContain("Connector default");
     expect(wecom).toContain('name="aibotWs.secret"');
     expect(wecom).not.toContain('name="app.corpId"');
     expect(wecom).not.toContain('name="callback.token"');

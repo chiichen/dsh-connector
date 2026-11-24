@@ -189,6 +189,10 @@ describe("connector settings interaction", () => {
     const connection = wecom.container.querySelector('select[name="mode"]');
     if (!(connection instanceof HTMLSelectElement)) throw new Error("missing WeCom connection");
     expect(connection.value).toBe("aibotWs");
+    const delivery = wecom.container.querySelector('select[name="inboundDeliveryMode"]');
+    if (!(delivery instanceof HTMLSelectElement)) throw new Error("missing WeCom delivery");
+    expect(delivery.value).toBe("queue");
+    expect([...delivery.options].map((option) => option.value)).toEqual(["queue", "steer"]);
     expect([...connection.options].map((option) => option.value)).toEqual([
       "app",
       "callback",

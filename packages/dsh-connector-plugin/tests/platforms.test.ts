@@ -300,13 +300,19 @@ describe("platform settings", () => {
     ).toEqual({
       enabled: true,
       mode: "aibotWs",
+      inboundDeliveryMode: "queue",
       aibotWs: { botId: "bot", secret: "secret" },
     });
     expect(
       platformsWithDisplayedDefaults({
         wecom: { enabled: true, app: { corpId: "ww" }, callback: { token: "token" } },
       }).wecom,
-    ).toEqual({ enabled: true, app: { corpId: "ww" }, callback: { token: "token" } });
+    ).toEqual({
+      enabled: true,
+      inboundDeliveryMode: "queue",
+      app: { corpId: "ww" },
+      callback: { token: "token" },
+    });
     expect(fieldIsVisible("wecom", botId, { enabled: true })).toBe(true);
     expect(fieldIsVisible("wecom", secret, { enabled: true })).toBe(true);
     expect(fieldIsVisible("wecom", corpId, { enabled: true })).toBe(false);
