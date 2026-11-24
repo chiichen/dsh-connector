@@ -45,6 +45,27 @@ dsh plugin --profile <配置名> add <packages/dsh-connector-plugin 的绝对路
 
 Discord 的 Gateway 和互动回调可以同时打开，不是互斥的接入形式。
 
+## 与 dsh 的版本兼容性
+
+`engines.dsh` 是 `>=0.2.2-rc.2 <0.2.3-0`。下界是 `pnpm --filter dsh-connector-plugin run test:dsh-host` 两项都通过的最早已发布版本。上界排除了设置页客户端失败的 `0.2.3-alpha.1` 和 `0.2.3-alpha.2`。`peerDependencies` 仍是 `>=0.2.2-0 <0.3.0`，没有改。
+
+每一行都把全部 `@deepseek-ai/dsh-*` 开发依赖装成同一个版本，再跑 `tests/client-host.test.ts`。客户端用例通过 `@deepseek-ai/dsh-client-modules` 加载设置页包。服务端用例在 Cordis 上激活插件。表里没有的版本没有跑过。
+
+| dsh | 设置页客户端 | 服务端插件 |
+| --- | --- | --- |
+| 0.2.1-rc.5 | ❌ 无法导入 `@deepseek-ai/dsh-client-modules/src/client/index.ts` | ❌ `@deepseek-ai/dsh-tools` 的 `ToolsService` 不是 Cordis 插件 |
+| 0.2.2-alpha.2 | ❌ 同样找不到客户端入口 | ✅ |
+| 0.2.2-alpha.3 | ❌ 同样找不到客户端入口 | ✅ |
+| 0.2.2-rc.1 | ❌ 同样找不到客户端入口 | ✅ |
+| 0.2.2-rc.2 | ✅ | ✅ |
+| 0.2.2-rc.3 | ✅ | ✅ |
+| 0.2.2-rc.4 | ✅ | ✅ |
+| 0.2.2-rc.5 | ✅ | ✅ |
+| 0.2.3-alpha.1 | ❌ `options.staticModules is not iterable` | ✅ |
+| 0.2.3-alpha.2 | ❌ `options.staticModules is not iterable` | ✅ |
+
+两项都通过的最早版本是 **0.2.2-rc.2**。
+
 ## 包
 
 - `@dsh-connector/core`（`packages/connector-core`）：与宿主无关的连接器契约、无状态 `ConnectorContext`、上下文标记和错误类型。依赖 `zod` v4，不依赖 `dsh`。
