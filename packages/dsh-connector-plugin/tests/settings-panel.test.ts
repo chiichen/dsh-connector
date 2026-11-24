@@ -76,9 +76,10 @@ describe("connector settings panel", () => {
     expect(wecom).toContain("Self-built app");
     expect(wecom).toContain("HTTP callback");
     expect(wecom).toContain("AI bot long connection");
+    expect(wecom).toContain('name="aibotWs.botId"');
+    expect(wecom).toContain('name="aibotWs.secret"');
     expect(wecom).not.toContain('name="app.corpId"');
     expect(wecom).not.toContain('name="callback.token"');
-    expect(wecom).not.toContain('name="aibotWs.botId"');
 
     const longConnection = renderToStaticMarkup(
       createElement(ConnectorSettingsPanel, {

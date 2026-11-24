@@ -9,7 +9,13 @@ import {
 } from "react";
 import enLocale from "../../locale/en.json";
 import zhLocale from "../../locale/zh.json";
-import { PLATFORM_BY_ID, PLATFORM_CATALOG, fieldIsVisible, textOf } from "../platforms/catalog";
+import {
+  PLATFORM_BY_ID,
+  PLATFORM_CATALOG,
+  fieldIsVisible,
+  platformsWithDisplayedDefaults,
+  textOf,
+} from "../platforms/catalog";
 import type { PlatformField, PlatformRecord, PlatformsConfig } from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
@@ -48,6 +54,12 @@ export interface ConnectorSettingsPanelProps {
 function stringValue(record: PlatformRecord | undefined, key: string): string {
   const value = readOwn(record, key);
   return typeof value === "string" ? value : "";
+}
+
+function enumValue(record: PlatformRecord | undefined, field: PlatformField): string {
+  const stored = stringValue(record, field.key);
+  if (stored.length > 0) return stored;
+  return field.defaultChoice ?? "";
 }
 
 function readOwn(record: PlatformRecord | undefined, key: string): unknown {
@@ -119,13 +131,15 @@ function FieldControl(props: {
         id={inputId}
         name={field.key}
         className={css.control}
-        value={stringValue(record, field.key)}
+        value={enumValue(record, field)}
         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
           const next = event.currentTarget.value;
-          onChange(field.key, next === "" ? undefined : next);
+          onChange(field.key, field.defaultChoice === undefined && next === "" ? undefined : next);
         }}
       >
-        <option value="">{CHROME[locale].defaultOption}</option>
+        {field.defaultChoice === undefined ? (
+          <option value="">{CHROME[locale].defaultOption}</option>
+        ) : null}
         {(field.choices ?? []).map((choice) => (
           <option key={choice} value={choice}>
             {choiceText(field, choice, locale)}
@@ -241,7 +255,7 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (props.disabled === true) return;
-    const prepared = preparePlatformSave(draft.platforms);
+    const prepared = preparePlatformSave(platformsWithDisplayedDefaults(draft.platforms));
     if (!prepared.ok) {
       update(
         reduceSettingsDraft(draft, {

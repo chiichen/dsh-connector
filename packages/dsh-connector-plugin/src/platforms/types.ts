@@ -40,6 +40,11 @@ export interface PlatformField {
   readonly requirement?: FieldRequirement;
   /** Display labels for enum choices. Choices without a label use the stored value. */
   readonly choiceLabels?: Readonly<Record<string, LocalizedText>>;
+  /**
+   * Stored value selected when the record has none.
+   * The settings control lists only real choices, so this is the option the user sees.
+   */
+  readonly defaultChoice?: string;
 }
 
 export interface PlatformDefinition {

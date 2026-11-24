@@ -1,3 +1,4 @@
+import { getPath, isRecord, setPath } from "./records";
 import type {
   FieldKind,
   FieldRequirement,
@@ -6,6 +7,7 @@ import type {
   PlatformField,
   PlatformId,
   PlatformRecord,
+  PlatformsConfig,
 } from "./types";
 import { PLATFORM_IDS } from "./types";
 
@@ -20,9 +22,10 @@ interface FieldInput {
   readonly modes?: readonly string[];
   readonly requirement?: FieldRequirement;
   readonly choiceLabels?: Readonly<Record<string, LocalizedText>>;
+  readonly defaultChoice?: string;
 }
 
-type FieldExtra = Pick<FieldInput, "modes" | "requirement" | "choiceLabels">;
+type FieldExtra = Pick<FieldInput, "modes" | "requirement" | "choiceLabels" | "defaultChoice">;
 
 function field(input: FieldInput): PlatformField {
   return {
@@ -34,6 +37,7 @@ function field(input: FieldInput): PlatformField {
     ...(input.modes !== undefined ? { modes: input.modes } : {}),
     ...(input.requirement !== undefined ? { requirement: input.requirement } : {}),
     ...(input.choiceLabels !== undefined ? { choiceLabels: input.choiceLabels } : {}),
+    ...(input.defaultChoice !== undefined ? { defaultChoice: input.defaultChoice } : {}),
   };
 }
 
@@ -526,6 +530,7 @@ const wecom: PlatformDefinition = {
       "自建应用、HTTP 回调，或智能机器人长连接。",
       WECOM_CONNECTIONS,
       {
+        defaultChoice: WECOM_CONNECTION_AIBOT_WS,
         choiceLabels: {
           [WECOM_CONNECTION_APP]: { en: "Self-built app", zh: "自建应用" },
           [WECOM_CONNECTION_CALLBACK]: { en: "HTTP callback", zh: "HTTP 回调" },
@@ -1131,12 +1136,55 @@ export function fieldIsVisible(
   record: PlatformRecord | undefined,
 ): boolean {
   if (platformField.modes === undefined) return true;
+  return platformField.modes.includes(visibleMode(platformId, record));
+}
+
+function storedChoice(record: PlatformRecord, key: string): string {
+  const current = getPath(record, key);
+  return typeof current === "string" ? current.trim() : "";
+}
+
+function defaultWouldDropStoredFields(
+  platformId: PlatformId,
+  record: PlatformRecord,
+  choice: string,
+): boolean {
+  for (const field of PLATFORM_BY_ID[platformId].fields) {
+    if (field.modes === undefined || field.modes.includes(choice)) continue;
+    if (getPath(record, field.key) !== undefined) return true;
+  }
+  return false;
+}
+
+function recordWithDisplayedDefaults(
+  platformId: PlatformId,
+  record: PlatformRecord,
+): PlatformRecord {
+  let next = record;
+  for (const field of PLATFORM_BY_ID[platformId].fields) {
+    if (field.kind !== "enum" || field.defaultChoice === undefined) continue;
+    if (storedChoice(next, field.key).length > 0) continue;
+    if (defaultWouldDropStoredFields(platformId, next, field.defaultChoice)) continue;
+    next = setPath(next, field.key, field.defaultChoice);
+  }
+  return next;
+}
+
+/** Writes each visible enum default into a record that does not already store another form. */
+export function platformsWithDisplayedDefaults(platforms: PlatformsConfig): PlatformsConfig {
+  const next: PlatformsConfig = {};
+  for (const id of PLATFORM_IDS) {
+    const record = platforms[id];
+    if (!isRecord(record)) continue;
+    next[id] = recordWithDisplayedDefaults(id, record);
+  }
+  return next;
+}
+
+function visibleMode(platformId: PlatformId, record: PlatformRecord | undefined): string {
   const rawMode = record?.mode;
-  const mode =
-    typeof rawMode === "string" && rawMode.trim() !== ""
-      ? rawMode.trim()
-      : platformId === "weixin"
-        ? "official-account"
-        : "";
-  return platformField.modes.includes(mode);
+  if (typeof rawMode === "string" && rawMode.trim() !== "") return rawMode.trim();
+  const modeField = PLATFORM_BY_ID[platformId].fields.find((field) => field.key === "mode");
+  if (modeField?.defaultChoice !== undefined) return modeField.defaultChoice;
+  return platformId === "weixin" ? "official-account" : "";
 }

@@ -13,7 +13,11 @@ import {
   mergePlatformConfigs,
   mountConnectorPlugin,
 } from "../src";
-import { PLATFORM_CATALOG, fieldIsVisible } from "../src/platforms/catalog";
+import {
+  PLATFORM_CATALOG,
+  fieldIsVisible,
+  platformsWithDisplayedDefaults,
+} from "../src/platforms/catalog";
 import { readPlatformsConfig } from "../src/platforms/read";
 import { requireString } from "../src/platforms/instantiate";
 import {
@@ -288,7 +292,23 @@ describe("platform settings", () => {
     const callbackToken = fieldNamed("callback.token");
 
     expect(fieldIsVisible("wecom", connection, { enabled: true })).toBe(true);
-    expect(fieldIsVisible("wecom", botId, { enabled: true })).toBe(false);
+    expect(connection.defaultChoice).toBe("aibotWs");
+    expect(
+      platformsWithDisplayedDefaults({
+        wecom: { enabled: true, aibotWs: { botId: "bot", secret: "secret" } },
+      }).wecom,
+    ).toEqual({
+      enabled: true,
+      mode: "aibotWs",
+      aibotWs: { botId: "bot", secret: "secret" },
+    });
+    expect(
+      platformsWithDisplayedDefaults({
+        wecom: { enabled: true, app: { corpId: "ww" }, callback: { token: "token" } },
+      }).wecom,
+    ).toEqual({ enabled: true, app: { corpId: "ww" }, callback: { token: "token" } });
+    expect(fieldIsVisible("wecom", botId, { enabled: true })).toBe(true);
+    expect(fieldIsVisible("wecom", secret, { enabled: true })).toBe(true);
     expect(fieldIsVisible("wecom", corpId, { enabled: true })).toBe(false);
     expect(fieldIsVisible("wecom", callbackToken, { enabled: true })).toBe(false);
 
