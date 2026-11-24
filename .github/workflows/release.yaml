@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# issues: write is required for the autorelease: pending label. release-please
+# uses that label to tell a merged release PR from a normal feature merge.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: publish
+    needs: release-please
+    # A normal push only opens or updates the release PR. Publishing runs when
+    # release-please has just created the GitHub Release for a merged release PR.
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.3
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run build
+      - name: Publish released packages to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PATHS_RELEASED: ${{ needs.release-please.outputs.paths_released }}
+        run: |
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "NPM_TOKEN is not set; skipping npm publish."
+            exit 0
+          fi
+          mapfile -t paths < <(printf '%s\n' "${PATHS_RELEASED}" | jq -r '.[]' | sort)
+          for path in "${paths[@]}"; do
+            if [ ! -f "${path}/package.json" ]; then
+              echo "Skipping ${path}: no package.json"
+              continue
+            fi
+            if [ "$(jq -r '.private // false' "${path}/package.json")" = "true" ]; then
+              echo "Skipping ${path}: private"
+              continue
+            fi
+            dest="$(mktemp -d)"
+            pnpm pack --pack-destination "${dest}" --dir "${path}"
+            tarball="$(find "${dest}" -name '*.tgz' -print -quit)"
+            npm publish --registry https://registry.npmjs.org "${tarball}"
+            rm -rf "${dest}"
+          done
