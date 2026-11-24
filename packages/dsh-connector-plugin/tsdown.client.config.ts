@@ -1,138 +1,101 @@
-import { readFile } from "node:fs/promises";
-import { dirname, relative, resolve, sep } from "node:path";
-import { transform, type TransformResult } from "lightningcss";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
 import { defineConfig } from "tsdown";
 
-const CSS_VIRTUAL_PREFIX = "\0dsh-css:";
-const CSS_VIRTUAL_SUFFIX = ".mjs";
-const PLUGIN_ID = "dsh-connector-plugin";
-
-interface CompiledStylesheet {
-  readonly path: string;
-  readonly css: string;
+interface ClientChunk {
+  readonly type: "chunk";
+  readonly fileName: string;
+  readonly moduleIds: readonly string[];
 }
 
-/**
- * Compile one CSS Module the same way DSH's client preset does: lightningcss
- * hashes local class names and the bundle publishes the compiled text.
- */
-export function compileModuleStylesheet(
-  fileId: string,
-  source: Uint8Array,
-): { readonly classMap: Record<string, string>; readonly css: string } {
-  const compiled: TransformResult = transform({
-    filename: fileId,
-    code: source,
-    cssModules: { pattern: "[hash]_[local]" },
-    minify: true,
-  });
-  const classMap: Record<string, string> = {};
-  const exported = compiled.exports ?? {};
-  for (const local of Object.keys(exported).sort()) {
-    const entry = exported[local];
-    if (entry !== undefined) classMap[local] = entry.name;
-  }
-  return { classMap, css: compiled.code.toString() };
+interface ClientAsset {
+  readonly type: "asset";
+  readonly fileName: string;
+  readonly source: string | Uint8Array;
 }
 
-const NAMED_IMPORT = /^import\s*\{([^}]+)\}\s*from\s*(["'][^"']+["']);?$/;
-const NAMED_EXPORT = /^export\s*\{([^}]+)\};?$/;
-
-/**
- * Turn the ESM client chunk into the factory DSH evaluates.
- * React stays a `require` of the host module table; stylesheet metadata sits
- * beside the factory so the renderer can install it before paint.
- */
-export function wrapClientModule(code: string, meta: string): string {
-  const requires: string[] = [];
-  const bodyLines: string[] = [];
-  let exported = "";
-  for (const line of code.split("\n")) {
-    const imported = NAMED_IMPORT.exec(line);
-    if (imported !== null) {
-      requires.push(`const {${imported[1]}} = require(${imported[2]});`);
-      continue;
-    }
-    const exportLine = NAMED_EXPORT.exec(line);
-    const exportNames = exportLine?.[1];
-    if (exportNames !== undefined) {
-      if (exported !== "") throw new Error("tsdown: client bundle has more than one export list");
-      exported = exportNames;
-      continue;
-    }
-    bodyLines.push(line);
-  }
-  if (exported === "") throw new Error("tsdown: client bundle is missing its export list");
-  const assignments = exported.split(",").map((part) => {
-    const [local, alias] = part.trim().split(/\s+as\s+/);
-    const binding = local?.trim() ?? "";
-    const name = (alias ?? local)?.trim() ?? "";
-    if (binding === "" || name === "") throw new Error("tsdown: client bundle has an empty export");
-    return `exports.${name} = ${binding};`;
-  });
-  return `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {\nvar module = { exports: {} };\nvar exports = module.exports;\n${requires.join("\n")}\n${bodyLines.join("\n")}\n${assignments.join("\n")}\nreturn module.exports; }${meta} });\n`;
-}
-
-/** `meta` argument fragment consumed by `DocumentStyles` in dsh-client-ui-renderer. */
-export function stylesheetMetaArgument(styles: readonly CompiledStylesheet[]): string {
-  if (styles.length === 0) return "";
-  const entries = styles.map(
-    (style) => `${JSON.stringify(style.path)}: { text: (context) => ${JSON.stringify(style.css)} }`,
-  );
-  return `, meta: () => ({ stylesheets: {${entries.join(",")}} })`;
-}
-
-function clientStylePlugin(packageDir: string): {
+interface ClientStylesheetPlugin {
   readonly name: string;
-  buildStart(): void;
-  resolveId(source: string, importer: string | undefined): string | null;
-  load(
-    this: { addWatchFile(id: string): void },
-    virtualId: string,
-  ): Promise<{ readonly code: string; readonly moduleSideEffects: "no-treeshake" } | null>;
-  renderChunk(code: string, chunk: { readonly fileName: string }): string | null;
-} {
-  const styles = new Map<string, CompiledStylesheet>();
-  return {
-    name: "dsh-connector-client-style",
-    buildStart() {
-      styles.clear();
-    },
-    resolveId(source: string, importer: string | undefined): string | null {
-      if (!source.endsWith(".module.css")) return null;
-      const from = importer === undefined ? packageDir : dirname(importer);
-      return CSS_VIRTUAL_PREFIX + resolve(from, source) + CSS_VIRTUAL_SUFFIX;
-    },
-    async load(virtualId: string) {
-      if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null;
-      const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length);
-      this.addWatchFile(fileId);
-      const compiled = compileModuleStylesheet(fileId, await readFile(fileId));
-      const localPath = relative(packageDir, fileId).split(sep).join("/");
-      styles.set(virtualId, { path: localPath, css: compiled.css });
-      return {
-        code: `export default ${JSON.stringify(compiled.classMap)};`,
-        moduleSideEffects: "no-treeshake",
-      };
-    },
-    renderChunk(code: string, chunk: { readonly fileName: string }): string | null {
-      if (!chunk.fileName.endsWith(".js")) return null;
-      return wrapClientModule(code, stylesheetMetaArgument([...styles.values()]));
-    },
-  };
+  writeBundle(options: unknown, bundle: Record<string, ClientChunk | ClientAsset>): Promise<void>;
 }
 
+const PLUGIN_ID = "dsh-connector-plugin";
+const STYLE_TOKEN = "___DSH_STYLES___";
+
+/**
+ * Browser client bundle.
+ *
+ * A component imports its CSS Module directly, as
+ * `packages/client/ui-settings-general/src/client/GeneralSection.tsx` does.
+ * The renderer installs styles from the ModuleLoader `meta.stylesheets`
+ * registration emitted by `clientBundle` in
+ * `packages/client/tsdown.client.ts`. That helper is not a published package,
+ * so this config only copies its banner, footer, and `meta.stylesheets` shape
+ * around the CSS tsdown already compiled.
+ */
 export default defineConfig({
   entry: { client: "src/client/index.tsx" },
-  format: ["esm"],
+  format: "cjs",
   platform: "browser",
   target: "es2024",
-  fixedExtension: false,
+  hash: false,
   dts: true,
   sourcemap: true,
   clean: false,
   deps: {
     neverBundle: [/^react$/, /^react-dom$/, /^react\/jsx-runtime$/],
   },
-  plugins: [clientStylePlugin(import.meta.dirname)],
+  inputOptions: { platform: "browser" },
+  outExtensions: () => ({ js: ".js" }),
+  outputOptions: (options, _format, context) => {
+    if (context.cjsDts) return;
+    return {
+      ...options,
+      entryFileNames: "client.js",
+      intro: "var module = { exports: {} }; var exports = module.exports;",
+      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`,
+      footer: `return module.exports; }, meta: () => ({ stylesheets: "${STYLE_TOKEN}" }) });`,
+    };
+  },
+  plugins: [clientStylesheetPlugin(import.meta.dirname)],
 });
+
+function clientStylesheetPlugin(packageDir: string): ClientStylesheetPlugin {
+  return {
+    name: "dsh-client-stylesheets",
+    async writeBundle(_options, bundle) {
+      const chunk = Object.values(bundle).find(
+        (item): item is ClientChunk => item.type === "chunk" && item.fileName === "client.js",
+      );
+      const asset = Object.values(bundle).find(
+        (item): item is ClientAsset => item.type === "asset" && item.fileName.endsWith(".css"),
+      );
+      if (chunk === undefined || asset === undefined) {
+        throw new Error("tsdown: client bundle did not emit client.js and its stylesheet");
+      }
+      const stylePath = stylesheetPath(packageDir, chunk.moduleIds);
+      const css =
+        typeof asset.source === "string"
+          ? asset.source
+          : Buffer.from(asset.source).toString("utf8");
+      const jsPath = resolve(packageDir, "dist/client.js");
+      const js = await readFile(jsPath, "utf8");
+      const placeholder = new RegExp(`["']${STYLE_TOKEN}["']`);
+      if (!placeholder.test(js)) {
+        throw new Error("tsdown: client bundle is missing its stylesheet placeholder");
+      }
+      const descriptor = `{ ${JSON.stringify(stylePath)}: { text: (context) => ${JSON.stringify(css)} } }`;
+      await writeFile(jsPath, js.replace(placeholder, descriptor));
+      await rm(resolve(packageDir, "dist", asset.fileName));
+    },
+  };
+}
+
+function stylesheetPath(packageDir: string, moduleIds: readonly string[]): string {
+  const styles = moduleIds.filter((id) => id.endsWith(".module.css"));
+  const style = styles[0];
+  if (style === undefined || styles.length !== 1) {
+    throw new Error(`tsdown: expected one CSS Module, found ${String(styles.length)}`);
+  }
+  return relative(packageDir, style).split(sep).join("/");
+}

@@ -11,8 +11,8 @@ import css from "./panel.module.css";
  * Settings page for the connector plugin.
  * The rail-and-form interaction follows dsh-im's per-platform settings page.
  * Field names come from each connector's constructor options, not from dsh-im.
- * Presentation uses a CSS Module. The client build publishes it as
- * `meta.stylesheets` for the DSH renderer; the host does not scan class names.
+ * Presentation uses a CSS Module, the same way a first-party settings
+ * section imports its own `*.module.css`.
  */
 
 export const name = CONNECTOR_PLUGIN_NAME;
