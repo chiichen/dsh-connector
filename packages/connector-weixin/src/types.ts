@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
+import type { ConnectorLogger, ConnectorSendResult, ContextMarkerStyle } from "@dsh-connector/core";
 import type { DEFAULT_WEIXIN_CONNECTOR_NAME } from "./constants";
 import type {
   WeixinAiMsgContext,
@@ -89,6 +89,7 @@ export interface WeixinConnectorCommonOptions<
 > {
   readonly name?: TName;
   readonly displayName?: string;
+  readonly logger?: ConnectorLogger;
   readonly description?: string;
   readonly fetchFn?: typeof fetch;
   readonly timeoutMs?: number;

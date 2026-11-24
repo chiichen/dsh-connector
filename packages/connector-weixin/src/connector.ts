@@ -7,6 +7,7 @@ import {
   prependContextMarker,
   type Connector,
   type ConnectorContext,
+  type ConnectorLogger,
   type ConnectorInboundPrompt,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
@@ -256,6 +257,7 @@ export class WeixinConnector<
   private readonly contextTokensByUser = new Map<string, string>();
 
   private receiverCtx: ConnectorReceiverContext<typeof weixinReceiveSchema, TName> | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
   private updatesBuf = "";
   private pollAbortController: AbortController | undefined;
   private pollLoopPromise: Promise<void> | undefined;
@@ -267,6 +269,7 @@ export class WeixinConnector<
     const resolvedName = (options.name ?? DEFAULT_WEIXIN_CONNECTOR_NAME) as TName;
     assertValidConnectorName(resolvedName);
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? DEFAULT_WEIXIN_DISPLAY_NAME;
     this.description = options.description ?? DEFAULT_WEIXIN_DESCRIPTION;
 
@@ -404,6 +407,10 @@ export class WeixinConnector<
     return this.streamingAdapter;
   }
 
+  private inboundLogger(): ConnectorLogger | undefined {
+    return this.receiverCtx?.logger ?? this.hostLogger;
+  }
+
   async start(): Promise<void> {
     if (this.mode !== "ilink") {
       return;
@@ -437,7 +444,7 @@ export class WeixinConnector<
       try {
         await this.apiClient.ilinkNotifyStop();
       } catch (error) {
-        this.receiverCtx?.logger.warn("Failed to notify Weixin iLink stop", {
+        this.inboundLogger()?.warn("Failed to notify Weixin iLink stop", {
           connectorName: this.name,
           error: String(error),
         });
@@ -803,7 +810,7 @@ export class WeixinConnector<
           return;
         }
         if (error instanceof ConnectorAuthError) {
-          this.receiverCtx?.logger.error("Weixin iLink authentication failed; stopping poll loop", {
+          this.inboundLogger()?.error("Weixin iLink authentication failed; stopping poll loop", {
             connectorName: this.name,
             error: error.message,
           });
@@ -814,7 +821,7 @@ export class WeixinConnector<
           config.pollRetryBaseDelayMs * 2 ** (consecutiveFailures - 1),
           config.pollRetryMaxDelayMs,
         );
-        this.receiverCtx?.logger.warn("Weixin iLink poll failed; backing off", {
+        this.inboundLogger()?.warn("Weixin iLink poll failed; backing off", {
           connectorName: this.name,
           attempt: consecutiveFailures,
           backoffMs,

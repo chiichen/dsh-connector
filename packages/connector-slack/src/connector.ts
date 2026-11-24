@@ -7,6 +7,7 @@ import {
   type ConnectorInboundPrompt,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
+  type ConnectorLogger,
   type ConnectorSender,
   type ConnectorWebhookRequest,
   type ConnectorWebhookResponse,
@@ -94,6 +95,7 @@ export interface SlackConnectorOptions<TName extends string = typeof DEFAULT_SLA
 
   readonly fetchFn?: typeof fetch;
   readonly createWebSocket?: (url: string) => SlackWebSocketLike;
+  readonly logger?: ConnectorLogger;
 
   /**
    * Reserved streaming configuration & adapter extension seam (`chat.update`,
@@ -161,6 +163,7 @@ export class SlackConnector<
   private readonly verifyAuthOnStart: boolean;
   private readonly participatingThreads = new Set<string>();
 
+  private readonly hostLogger: ConnectorLogger | undefined;
   private receiverContext: ConnectorReceiverContext<typeof slackReceiveSchema, TName> | undefined;
   private resolvedBotUserId: string | undefined;
   private resolvedAppId: string | undefined;
@@ -169,6 +172,7 @@ export class SlackConnector<
     const resolvedName = (options.name ?? DEFAULT_SLACK_CONNECTOR_NAME) as TName;
     assertValidConnectorName(resolvedName);
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? "Slack";
     this.description =
       options.description ??
@@ -271,7 +275,7 @@ export class SlackConnector<
       this.socketClient = new SlackSocketModeClient({
         connectorName: resolvedName,
         apiClient: this.apiClient,
-        getLogger: () => this.receiverContext?.logger,
+        getLogger: () => this.receiverContext?.logger ?? this.hostLogger,
         onHelloAppId: (appId) => {
           if (this.resolvedAppId === undefined) {
             this.resolvedAppId = appId;

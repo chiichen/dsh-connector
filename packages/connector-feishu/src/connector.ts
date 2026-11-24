@@ -21,6 +21,7 @@
 import {
   assertValidConnectorName,
   type Connector,
+  type ConnectorLogger,
   type ConnectorReceiver,
   type ConnectorSender,
 } from "@dsh-connector/core";
@@ -109,6 +110,7 @@ export interface FeishuConnectorOptions<
   readonly now?: () => number;
   /** Injectable WebSocket constructor/factory for long-connection mode. */
   readonly createWebSocket?: FeishuWebSocketFactory;
+  readonly logger?: ConnectorLogger;
 
   /** Reserved streaming configuration slot for future CardKit v1 / message card patch integration. */
   readonly streaming?: FeishuStreamingOptions<TName>;
@@ -134,6 +136,7 @@ export class FeishuConnector<
   private readonly sender: ConnectorSender<typeof feishuSendSchema, FeishuSendResult, TName>;
   private readonly receiverRuntime: FeishuReceiverRuntime<TName>;
   private readonly streamingAdapter: FeishuStreamingAdapter<TName> | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
   private readonly wsOptions: {
     readonly createWebSocket?: FeishuWebSocketFactory;
     readonly handshakeTimeoutMs?: number;
@@ -150,6 +153,7 @@ export class FeishuConnector<
     assertValidConnectorName(resolvedName);
 
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? DEFAULT_FEISHU_DISPLAY_NAME;
     this.description = options.description ?? DEFAULT_FEISHU_DESCRIPTION;
     this.mode = options.mode ?? "webhook";
@@ -248,7 +252,7 @@ export class FeishuConnector<
 
     if (this.mode === "websocket" || this.mode === "both") {
       if (this.wsClient === undefined) {
-        const logger = this.receiverRuntime.getReceiverContext()?.logger;
+        const logger = this.receiverRuntime.getReceiverContext()?.logger ?? this.hostLogger;
         this.wsClient = new FeishuWsLongConnectionClient({
           apiClient: this.apiClient,
           onEventEnvelope: async (envelope) => {

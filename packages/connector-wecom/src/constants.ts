@@ -118,6 +118,17 @@ export const WECOM_AIBOT_CMD_RESPOND_UPDATE = "aibot_respond_update_msg" as cons
 export const WECOM_AIBOT_CMD_SEND_MSG = "aibot_send_msg" as const;
 export const WECOM_AIBOT_EVENT_DISCONNECTED = "disconnected_event" as const;
 
+/**
+ * Long-connection observations written through the host `ConnectorLogger`.
+ *
+ * @see https://developer.work.weixin.qq.com/document/path/101463
+ */
+export const WECOM_LOG_HANDSHAKE_FAILED =
+  "WeCom Intelligent Bot WebSocket handshake failed" as const;
+export const WECOM_LOG_MESSAGE_RECEIVED = "Received WeCom aibot_msg_callback" as const;
+export const WECOM_LOG_MESSAGE_FAILED = "Failed handling WeCom aibot_msg_callback frame" as const;
+export const WECOM_LOG_DISCONNECTED = "WeCom Intelligent Bot WebSocket disconnected" as const;
+
 export const WECOM_AIBOT_CHAT_TYPE_SINGLE = 1 as const;
 export const WECOM_AIBOT_CHAT_TYPE_GROUP = 2 as const;
 

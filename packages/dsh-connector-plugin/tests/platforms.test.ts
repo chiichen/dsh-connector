@@ -1,4 +1,9 @@
-import { ConnectorValidationError, defineConnector, type Connector } from "@dsh-connector/core";
+import {
+  ConnectorValidationError,
+  defineConnector,
+  type Connector,
+  type ConnectorLogger,
+} from "@dsh-connector/core";
 import { describe, expect, it } from "vitest";
 import {
   Config,
@@ -33,6 +38,17 @@ function connectorNamed(connectors: readonly Connector[], name: string): Connect
   const found = connectors.find((connector) => connector.name === name);
   if (found === undefined) throw new Error(`Missing connector ${name}`);
   return found;
+}
+
+const HOST_LOGGER: ConnectorLogger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+function hostLoggerOf(connector: object): unknown {
+  return Reflect.get(connector, "hostLogger");
 }
 
 const minimalPlatforms: PlatformsConfig = {
@@ -670,5 +686,42 @@ describe("mounting configured connectors", () => {
     } finally {
       await host.stop();
     }
+  });
+
+  it("passes the host logger into every started connector, including the WeCom long connection", () => {
+    const connectors = createConnectorsFromPlatformConfig(minimalPlatforms, HOST_LOGGER);
+    expect(connectors.map((connector) => connector.name).sort()).toEqual([
+      "dingtalk",
+      "discord",
+      "feishu",
+      "qq",
+      "slack",
+      "telegram",
+      "wecom",
+      "weixin",
+      "whatsapp",
+    ]);
+    for (const connector of connectors) {
+      expect(hostLoggerOf(connector)).toBe(HOST_LOGGER);
+    }
+
+    const longConnection = createConnectorsFromPlatformConfig(
+      {
+        wecom: {
+          enabled: true,
+          mode: "aibotWs",
+          aibotWs: { botId: "bot", secret: "secret" },
+        },
+        discord: { enabled: true, botToken: "discord-bot", enableGateway: true },
+      },
+      HOST_LOGGER,
+    );
+    const wecom = connectorNamed(longConnection, "wecom") as Connector & {
+      getWsClient(): object | undefined;
+    };
+    const wsClient = wecom.getWsClient();
+    expect(wsClient).toBeDefined();
+    expect(Reflect.get(wsClient as object, "logger")).toBe(HOST_LOGGER);
+    expect(hostLoggerOf(connectorNamed(longConnection, "discord"))).toBe(HOST_LOGGER);
   });
 });

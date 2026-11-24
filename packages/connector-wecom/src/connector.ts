@@ -19,6 +19,7 @@
 import {
   assertValidConnectorName,
   type Connector,
+  type ConnectorLogger,
   type ConnectorReceiver,
   type ConnectorSender,
 } from "@dsh-connector/core";
@@ -54,11 +55,13 @@ export class WeComConnector<const TName extends string = "wecom"> implements Con
   private readonly receiver: WeComReceiver<TName> | undefined;
   private readonly sender: WeComSender<TName>;
   private readonly streamingAdapter: WeComStreamingAdapter | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   constructor(options: WeComConnectorOptions<TName> = {}) {
     const resolvedName = (options.name ?? DEFAULT_WECOM_CONNECTOR_NAME) as TName;
     assertValidConnectorName(resolvedName);
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? DEFAULT_WECOM_DISPLAY_NAME;
     this.description = options.description ?? DEFAULT_WECOM_DESCRIPTION;
     this.streamingAdapter = resolveWeComStreamingAdapter(options);
@@ -102,7 +105,7 @@ export class WeComConnector<const TName extends string = "wecom"> implements Con
         ? new WeComAibotWsClient({
             connectorName: resolvedName,
             config: options.aibotWs,
-            ...(options.logger !== undefined ? { logger: options.logger } : {}),
+            ...(this.hostLogger !== undefined ? { logger: this.hostLogger } : {}),
             onMessageCallback: async (frame) => {
               await this.receiver?.ingestWsMessageCallback(frame);
             },

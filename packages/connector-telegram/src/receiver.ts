@@ -18,6 +18,7 @@ import {
   DEFAULT_POLL_RETRY_BASE_MS,
   DEFAULT_POLL_RETRY_MAX_MS,
   DEFAULT_POLL_TIMEOUT_SECONDS,
+  TELEGRAM_LOG_HANDSHAKE_FAILED,
   HEADER_ALLOW,
   HEADER_CONTENT_TYPE,
   HTTP_STATUS_BAD_REQUEST,
@@ -65,6 +66,7 @@ export interface TelegramReceiverOptions<TName extends string = "telegram"> {
   readonly inboundDeliveryMode?: "queue" | "steer";
   readonly polling?: TelegramPollingOptions;
   readonly sleepFn?: TelegramSleepFn;
+  readonly logger?: ConnectorLogger;
   readonly onGenerationStopped?: (
     event: TelegramMessageGenerationStoppedEvent,
   ) => Promise<void> | void;
@@ -113,6 +115,7 @@ export class TelegramReceiver<TName extends string = "telegram"> implements Conn
     | undefined;
 
   private receiverCtx: ConnectorReceiverContext<typeof telegramReceiveSchema, TName> | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
   private botIdentity: TelegramBotIdentity | undefined;
   private currentOffset: number | undefined;
   private pollAbortController: AbortController | undefined;
@@ -120,6 +123,7 @@ export class TelegramReceiver<TName extends string = "telegram"> implements Conn
 
   constructor(options: TelegramReceiverOptions<TName>) {
     this.connectorName = options.connectorName;
+    this.hostLogger = options.logger;
     this.apiClient = options.apiClient;
     this.webhookSecretToken = options.webhookSecretToken;
     this.requireWebhookSecretToken = options.requireWebhookSecretToken ?? true;
@@ -142,7 +146,7 @@ export class TelegramReceiver<TName extends string = "telegram"> implements Conn
   }
 
   private get logger(): ConnectorLogger | undefined {
-    return this.receiverCtx?.logger;
+    return this.receiverCtx?.logger ?? this.hostLogger;
   }
 
   getBotIdentity(): TelegramBotIdentity | undefined {
@@ -294,6 +298,10 @@ export class TelegramReceiver<TName extends string = "telegram"> implements Conn
       }
     } catch (error) {
       this.pollAbortController = undefined;
+      this.logger?.error(TELEGRAM_LOG_HANDSHAKE_FAILED, {
+        connector: this.connectorName,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
 

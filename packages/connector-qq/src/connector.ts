@@ -2,6 +2,7 @@ import {
   assertValidConnectorName,
   defineConnector,
   type Connector,
+  type ConnectorLogger,
   type ConnectorReceiver,
   type ConnectorSender,
 } from "@dsh-connector/core";
@@ -62,6 +63,7 @@ export interface QqConnectorOptions<TName extends string = typeof QQ_DEFAULT_CON
   readonly maxReconnectAttempts?: number;
   readonly fetchFn?: typeof fetch;
   readonly createWebSocket?: QqWebSocketFactory;
+  readonly logger?: ConnectorLogger;
   readonly now?: () => number;
 
   /**
@@ -98,6 +100,7 @@ export class QqConnector<
   private readonly eventReceiver: QqEventReceiver<TName>;
   private readonly gatewayClient: QqGatewayClient | undefined;
   private readonly streamingAdapter: QqStreamingAdapter | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   private readonly senderCapability: ConnectorSender<typeof qqSendSchema, QqSendResult, TName>;
   private readonly receiverCapability: ConnectorReceiver<typeof qqReceiveSchema, TName>;
@@ -107,6 +110,7 @@ export class QqConnector<
     assertValidConnectorName(resolvedName);
 
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? QQ_DEFAULT_DISPLAY_NAME;
     this.description = options.description ?? QQ_DEFAULT_DESCRIPTION;
     this.transport = options.transport ?? "webhook";
@@ -155,6 +159,7 @@ export class QqConnector<
       connectorName: resolvedName,
       appId: options.appId,
       clientSecret: options.clientSecret,
+      ...(this.hostLogger !== undefined ? { logger: this.hostLogger } : {}),
       ...(options.botUserId !== undefined ? { botUserId: options.botUserId } : {}),
       passiveTracker: this.passiveTracker,
       ...(options.now !== undefined ? { now: options.now } : {}),

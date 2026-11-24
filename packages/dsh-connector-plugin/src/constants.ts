@@ -5,6 +5,9 @@
 
 export const CONNECTOR_PLUGIN_NAME = "dsh-connector-plugin" as const;
 
+export const LOG_INBOUND_RECEIVED = "Received inbound connector message" as const;
+export const LOG_INBOUND_FAILED = "Failed handling inbound connector message" as const;
+
 export const CONNECTOR_STORAGE_DOMAIN_NAME = "dsh_connector_contexts" as const;
 export const CONNECTOR_STORAGE_DOMAIN_VERSION = 1 as const;
 export const CONNECTOR_STORAGE_TABLE_NAME = "contexts" as const;

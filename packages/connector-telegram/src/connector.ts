@@ -1,4 +1,8 @@
-import { assertValidConnectorName, type Connector } from "@dsh-connector/core";
+import {
+  assertValidConnectorName,
+  type Connector,
+  type ConnectorLogger,
+} from "@dsh-connector/core";
 import { TelegramApiClient } from "./api-client";
 import {
   DEFAULT_TELEGRAM_CONNECTOR_NAME,
@@ -59,6 +63,7 @@ export class TelegramConnector<
   private readonly receiver: TelegramReceiver<TName>;
   private readonly streamingOptions: TelegramStreamingOptions | undefined;
   private readonly streamingAdapter: TelegramStreamingAdapter | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
 
   constructor(options: TelegramConnectorOptions<TName>) {
     const resolvedName = (options.name ?? DEFAULT_TELEGRAM_CONNECTOR_NAME) as TName;
@@ -69,6 +74,7 @@ export class TelegramConnector<
     }
 
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? DEFAULT_TELEGRAM_DISPLAY_NAME;
     this.description = options.description ?? DEFAULT_TELEGRAM_DESCRIPTION;
     this.mode = resolveTransportMode(options);
@@ -78,6 +84,7 @@ export class TelegramConnector<
     this.apiClient = new TelegramApiClient({
       connectorName: resolvedName,
       botToken: options.botToken,
+      ...(this.hostLogger !== undefined ? { logger: this.hostLogger } : {}),
       apiBaseUrl: options.apiBaseUrl,
       fetchFn: options.fetchFn,
       sleepFn: options.sleepFn,
@@ -98,6 +105,7 @@ export class TelegramConnector<
     this.receiver = new TelegramReceiver<TName>({
       connectorName: resolvedName,
       apiClient: this.apiClient,
+      ...(this.hostLogger !== undefined ? { logger: this.hostLogger } : {}),
       botId: options.botId,
       botUsername: options.botUsername,
       webhookSecretToken: options.webhookSecretToken,

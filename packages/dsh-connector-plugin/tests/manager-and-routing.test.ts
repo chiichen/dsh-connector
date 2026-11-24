@@ -12,6 +12,7 @@ import {
   type ConnectorReceiverContext,
 } from "@dsh-connector/core";
 import { DefaultContextSessionStore } from "../src/context-store";
+import { LOG_INBOUND_RECEIVED } from "../src/constants";
 import { ConnectorManager } from "../src/manager";
 import { DshSessionDriver } from "../src/session-driver";
 import {
@@ -29,11 +30,20 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
       const store = new DefaultContextSessionStore();
       const sessionDriver = new DshSessionDriver(host.ctx, { defaultCwd: "/tmp/workspace" });
       const github = new MockGithubPrConnector();
+      const inboundLogs: string[] = [];
 
       const manager = new ConnectorManager({
         connectors: [github],
         contextStore: store,
         sessionDriver,
+        logger: {
+          debug: () => {},
+          info: (message) => {
+            inboundLogs.push(message);
+          },
+          warn: () => {},
+          error: () => {},
+        },
       });
       await manager.startAll();
       expect(github.started).toBe(true);
@@ -59,6 +69,7 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
 
       expect(second.sessionId).toBe(first.sessionId);
       expect(host.prompts).toHaveLength(2);
+      expect(inboundLogs).toEqual([LOG_INBOUND_RECEIVED, LOG_INBOUND_RECEIVED]);
 
       // Agent replies in the same session WITHOUT specifying prNumber in params -> resolves from context.contextId
       const sendRes = await manager.dispatchSend("github", first.sessionId, {

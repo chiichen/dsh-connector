@@ -10,6 +10,14 @@
 
 export const FEISHU_CONNECTOR_VERSION = "0.1.0" as const;
 
+/**
+ * Long-connection observations written through the host `ConnectorLogger`.
+ *
+ * @see https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case
+ */
+export const FEISHU_LOG_HANDSHAKE_FAILED = "Feishu WebSocket handshake failed" as const;
+export const FEISHU_LOG_DISCONNECTED = "Feishu WebSocket disconnected" as const;
+
 export const DEFAULT_FEISHU_CONNECTOR_NAME = "feishu" as const;
 export const DEFAULT_FEISHU_DISPLAY_NAME = "Feishu / Lark" as const;
 export const DEFAULT_FEISHU_DESCRIPTION =

@@ -3,6 +3,7 @@ import {
   extractContextMarker,
   type ConnectorContext,
   type ConnectorInboundPrompt,
+  type ConnectorLogger,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
   type ConnectorWebhookRequest,
@@ -21,6 +22,7 @@ import {
   HUB_MODE_QUERY_PARAM,
   HUB_SUBSCRIBE_MODE,
   HUB_VERIFY_TOKEN_QUERY_PARAM,
+  WHATSAPP_LOG_HANDSHAKE_FAILED,
   MILLISECONDS_PER_SECOND,
   WEBHOOK_SIGNATURE_HEADER,
   WHATSAPP_MESSAGING_PRODUCT,
@@ -131,6 +133,7 @@ export interface WhatsAppReceiverConfig<TName extends string = "whatsapp"> {
   readonly allowUnsignedWebhooks?: boolean;
   readonly allowedSenders?: readonly string[];
   readonly sentMessageTracker: SentMessageTracker;
+  readonly logger?: ConnectorLogger;
 }
 
 function extractMessageText(msg: WhatsAppWebhookIncomingMessage):
@@ -225,6 +228,7 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
   config: WhatsAppReceiverConfig<TName>,
 ): ConnectorReceiver<typeof whatsappReceiveSchema, TName> {
   let receiverCtx: ConnectorReceiverContext<typeof whatsappReceiveSchema, TName> | undefined;
+  const activeLogger = (): ConnectorLogger | undefined => receiverCtx?.logger ?? config.logger;
 
   const configuredBizDigits =
     config.businessPhoneNumber !== undefined
@@ -292,6 +296,9 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
           };
         }
 
+        activeLogger()?.error(WHATSAPP_LOG_HANDSHAKE_FAILED, {
+          connector: config.connectorName,
+        });
         return {
           status: HTTP_STATUS_FORBIDDEN,
           headers: { "content-type": CONTENT_TYPE_TEXT_PLAIN },
@@ -321,6 +328,9 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
       if (config.appSecret !== undefined && config.appSecret.length > 0) {
         const signatureHeader = getHeaderCaseInsensitive(req.headers, WEBHOOK_SIGNATURE_HEADER);
         if (!verifyWhatsAppSignature(req.rawBody, signatureHeader, config.appSecret)) {
+          activeLogger()?.error(WHATSAPP_LOG_HANDSHAKE_FAILED, {
+            connector: config.connectorName,
+          });
           return {
             status: HTTP_STATUS_UNAUTHORIZED,
             headers: { "content-type": CONTENT_TYPE_TEXT_PLAIN },
@@ -370,7 +380,7 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
 
           if (Array.isArray(value.statuses) && value.statuses.length > 0) {
             ignored += value.statuses.length;
-            receiverCtx.logger.debug("Ignored WhatsApp Cloud API message status receipts", {
+            activeLogger()?.debug("Ignored WhatsApp Cloud API message status receipts", {
               count: value.statuses.length,
             });
           }

@@ -17,7 +17,7 @@ import {
   type ConnectorSendResult,
   type InboundDeliveryMeta,
 } from "@dsh-connector/core";
-import { DEDUP_KEY_LENGTH_DELIMITER } from "./constants";
+import { DEDUP_KEY_LENGTH_DELIMITER, LOG_INBOUND_FAILED, LOG_INBOUND_RECEIVED } from "./constants";
 import {
   toContextHashKey,
   type ConnectorContextHashKey,
@@ -231,6 +231,25 @@ export class ConnectorManager {
     rawParams: unknown,
     meta?: InboundDeliveryMeta,
   ): Promise<{ readonly sessionId: string; readonly deduplicated?: boolean }> {
+    try {
+      return await this.acceptInbound(connector, receiver, context, rawParams, meta);
+    } catch (error) {
+      this.logger.error(LOG_INBOUND_FAILED, {
+        connector: connector.name,
+        contextId: context.contextId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async acceptInbound(
+    connector: Connector,
+    receiver: ConnectorReceiver,
+    context: ConnectorContext,
+    rawParams: unknown,
+    meta?: InboundDeliveryMeta,
+  ): Promise<{ readonly sessionId: string; readonly deduplicated?: boolean }> {
     if (context.connectorName !== connector.name) {
       throw new ConnectorValidationError(
         `Context connectorName "${context.connectorName}" does not match receiving connector "${connector.name}".`,
@@ -253,7 +272,7 @@ export class ConnectorManager {
         ? buildInboundDedupKey(hashKey, meta.idempotencyKey)
         : undefined;
 
-    return this.inboundQueue.run(hashKey, async () => {
+    return await this.inboundQueue.run(hashKey, async () => {
       let existingSessionId = await this.contextStore.getSessionIdByHashKey(hashKey);
       if (
         existingSessionId !== undefined &&
@@ -288,6 +307,10 @@ export class ConnectorManager {
         targetSessionId = existingSessionId;
       }
 
+      this.logger.info(LOG_INBOUND_RECEIVED, {
+        connector: connector.name,
+        contextId: context.contextId,
+      });
       await this.sessionDriver.prompt(
         targetSessionId,
         formatted.text,

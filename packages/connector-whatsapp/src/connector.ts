@@ -3,6 +3,7 @@ import {
   ConnectorValidationError,
   defineConnector,
   type Connector,
+  type ConnectorLogger,
   type ConnectorReceiver,
   type ConnectorSender,
 } from "@dsh-connector/core";
@@ -55,6 +56,7 @@ export class WhatsAppConnector<
   private readonly receiver: ConnectorReceiver<typeof whatsappReceiveSchema, TName>;
   private readonly streamingOptions: WhatsAppStreamingOptions | undefined;
   private readonly streamingAdapter: WhatsAppStreamingAdapter | undefined;
+  private readonly hostLogger: ConnectorLogger | undefined;
   private started = false;
 
   constructor(options: WhatsAppConnectorOptions<TName>) {
@@ -69,6 +71,7 @@ export class WhatsAppConnector<
     }
 
     this.name = resolvedName;
+    this.hostLogger = options.logger;
     this.displayName = options.displayName ?? DEFAULT_WHATSAPP_DISPLAY_NAME;
     this.description = options.description ?? DEFAULT_WHATSAPP_DESCRIPTION;
     this.streamingOptions = options.streaming;
@@ -96,6 +99,7 @@ export class WhatsAppConnector<
     this.receiver = createWhatsAppReceiver({
       connectorName: resolvedName,
       phoneNumberId,
+      ...(this.hostLogger !== undefined ? { logger: this.hostLogger } : {}),
       ...(options.businessPhoneNumber !== undefined
         ? { businessPhoneNumber: options.businessPhoneNumber }
         : {}),
