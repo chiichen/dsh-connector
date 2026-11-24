@@ -20,17 +20,15 @@ import { fileURLToPath } from "node:url";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PROFILE_NAME = "connector-boot";
-const SHIPPED_TEMPLATE = "headless";
-const BOOT_TASK = "Reply with the single word ok.";
+const SHIPPED_TEMPLATE = "web";
 const COMMAND_TIMEOUT_MS = 180_000;
-const ACTIVATION_FAILURE = "did not activate";
-const INVALID_EFFECT = "Invalid effect";
 /**
- * Headless reaches the model only after the plugin tree has started.
- * A profile without DEEPSEEK_API_KEY stops there.
- * https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm/src/error.ts
+ * Printed only after `auditStartupEntries` resolves. A failed startup stays unpublished.
+ * The label is `dsh web` and the value is the listener URL.
+ * https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/web-app/src/index.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/authentication-token/src/index.ts
  */
-const MODEL_CREDENTIAL = "MISSING_CREDENTIAL";
+const STARTUP_LOG_PREFIXES = ["dsh web: http://", "dsh web: https://"];
 
 const pluginPackage = JSON.parse(await readFile(resolve(PACKAGE_DIR, "package.json"), "utf8"));
 const enginesDsh = pluginPackage.engines.dsh;
@@ -61,12 +59,11 @@ try {
     env,
     cwd: cliDir,
   });
-  const booted = await run(dshBin, ["--profile", PROFILE_NAME, BOOT_TASK], {
+  const booted = await runUntilStartupLog(dshBin, ["--profile", PROFILE_NAME, "--no-open"], {
     env,
     cwd: cliDir,
   });
-  assertActivated(booted);
-  process.stdout.write("dsh-connector-plugin activated\n");
+  process.stdout.write(`${startupLogLine(booted)}\n`);
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -110,13 +107,63 @@ function commandEnv(dshHome) {
   return env;
 }
 
-function assertActivated(result) {
+function startupLogLine(result) {
   const output = `${result.stdout}\n${result.stderr}`;
-  if (output.includes(ACTIVATION_FAILURE) || output.includes(INVALID_EFFECT)) {
-    throw new Error(`dsh reported an activation failure:\n${output}`);
-  }
-  if (result.code === 0 || output.includes(MODEL_CREDENTIAL)) return;
-  throw new Error(`dsh exited ${String(result.code)} before the plugin tree finished:\n${output}`);
+  return output
+    .split("\n")
+    .find((line) => STARTUP_LOG_PREFIXES.some((prefix) => line.startsWith(prefix)));
+}
+
+function runUntilStartupLog(command, args, options) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let ready = false;
+    const finishReady = () => {
+      if (ready) return;
+      ready = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+    }, COMMAND_TIMEOUT_MS);
+    const take = (chunk, intoStdout) => {
+      if (intoStdout) stdout += chunk;
+      else stderr += chunk;
+      if (startupLogLine({ stdout, stderr }) !== undefined) finishReady();
+    };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      take(chunk, true);
+    });
+    child.stderr.on("data", (chunk) => {
+      take(chunk, false);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const result = { stdout, stderr };
+      if (startupLogLine(result) !== undefined) {
+        resolvePromise(result);
+        return;
+      }
+      reject(
+        new Error(
+          `${command} ${args.join(" ")} exited without the dsh web startup URL\n${stdout}\n${stderr}`,
+        ),
+      );
+    });
+  });
 }
 
 function runChecked(command, args, options) {
