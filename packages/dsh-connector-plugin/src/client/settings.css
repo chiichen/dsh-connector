@@ -1,4 +1,0 @@
-/* Utilities only. The host already paints the page, so this file does not load Tailwind's preflight. */
-@import "tailwindcss/theme.css" layer(theme) source(none);
-@import "tailwindcss/utilities.css" layer(utilities) source(none);
-@source "./panel.ts";

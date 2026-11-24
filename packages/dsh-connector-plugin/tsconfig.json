@@ -1,8 +1,15 @@
 {
   "extends": "@repo/typescript-config/node-library.json",
-  "include": ["src/**/*.ts", "tests/**/*.ts", "tsdown.config.ts", "tsdown.client.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tsdown.config.ts",
+    "tsdown.client.config.ts"
+  ],
   "compilerOptions": {
     "noEmit": true,
+    "jsx": "react-jsx",
     "lib": ["ES2024", "DOM"]
   }
 }

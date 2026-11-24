@@ -1,9 +1,9 @@
-import { createElement, useRef, useSyncExternalStore, type ReactElement } from "react";
+import { useRef, useSyncExternalStore, type ReactElement } from "react";
 import enLocale from "../../locale/en.json";
 import zhLocale from "../../locale/zh.json";
 import { CONNECTOR_PLUGIN_NAME } from "../constants";
-import type { PlatformsConfig } from "../platforms/types";
 import { isRecord } from "../platforms/records";
+import type { PlatformsConfig } from "../platforms/types";
 import { ConnectorSettingsPanel, normalizeLocale } from "./panel";
 
 /**
@@ -112,9 +112,9 @@ export function ConnectorSettingsEntry(props: {
   const locale = normalizeLocale(props.localeTag);
   if (props.form === undefined) {
     const chrome = locale === "zh" ? zhLocale.settings : enLocale.settings;
-    return createElement("p", { role: "status" }, chrome.unavailable);
+    return <p role="status">{chrome.unavailable}</p>;
   }
-  return createElement(ConnectorSettingsForm, { form: props.form, locale });
+  return <ConnectorSettingsForm form={props.form} locale={locale} />;
 }
 
 function ConnectorSettingsForm(props: {
@@ -122,14 +122,16 @@ function ConnectorSettingsForm(props: {
   readonly locale: "en" | "zh";
 }): ReactElement {
   const snapshot = useConfigForm(props.form);
-  return createElement(ConnectorSettingsPanel, {
-    platforms: platformsFromConfigValue(snapshot.value),
-    locale: props.locale,
-    disabled: snapshot.writable === false,
-    onSave: async (platforms) => {
-      await props.form.set("platforms", platforms);
-    },
-  });
+  return (
+    <ConnectorSettingsPanel
+      platforms={platformsFromConfigValue(snapshot.value)}
+      locale={props.locale}
+      disabled={snapshot.writable === false}
+      onSave={async (platforms) => {
+        await props.form.set("platforms", platforms);
+      }}
+    />
+  );
 }
 
 export function apply(ctx: ConnectorSettingsHost): void {
