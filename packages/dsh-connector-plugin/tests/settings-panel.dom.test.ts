@@ -175,6 +175,30 @@ describe("connector settings interaction", () => {
     expect(weixin.container.querySelector('input[name="botToken"]')).not.toBeNull();
     await unmount(weixin);
 
+    const wecom = await render(
+      createElement(ConnectorSettingsPanel, {
+        platforms: { wecom: { enabled: true } },
+        onSave: () => {},
+      }),
+    );
+    await act(async () => {
+      wecom.container
+        .querySelector('[data-platform="wecom"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(wecom.container.querySelector('input[name="aibotWs.botId"]')).toBeNull();
+    expect(wecom.container.querySelector('input[name="app.corpId"]')).toBeNull();
+    const connection = wecom.container.querySelector('select[name="mode"]');
+    if (!(connection instanceof HTMLSelectElement)) throw new Error("missing WeCom connection");
+    await act(async () => {
+      setControlValue(connection, "aibotWs");
+    });
+    expect(wecom.container.querySelector('input[name="aibotWs.botId"]')).not.toBeNull();
+    expect(wecom.container.querySelector('input[name="aibotWs.secret"]')).not.toBeNull();
+    expect(wecom.container.querySelector('input[name="app.corpId"]')).toBeNull();
+    expect(wecom.container.querySelector('input[name="callback.token"]')).toBeNull();
+    await unmount(wecom);
+
     const writes: unknown[] = [];
     const snapshot = { value: { platforms: {} }, writable: true, revision: 1 };
     const configForm: ConfigFormHandle = {

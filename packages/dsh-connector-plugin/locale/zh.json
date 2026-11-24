@@ -11,6 +11,8 @@
     "unavailable": "宿主没有提供配置表单，连接器设置不可用。",
     "defaultOption": "使用连接器默认值",
     "platformList": "连接器",
-    "enableHint": "启用此连接器后，填写它实际读取的凭据和选项。"
+    "enableHint": "启用此连接器后，填写它实际读取的凭据和选项。",
+    "required": "必填",
+    "optional": "选填"
   }
 }

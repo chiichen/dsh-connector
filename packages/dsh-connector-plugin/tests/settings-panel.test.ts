@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +20,16 @@ function form(snapshot: ReturnType<ConfigFormHandle["getSnapshot"]>): ConfigForm
     set: () => true,
   };
 }
+
+describe("save button theme tokens", () => {
+  it("pairs the primary fill with the foreground that flips in dark theme", () => {
+    const css = readFileSync(new URL("../src/client/panel.module.css", import.meta.url), "utf8");
+    const save = css.match(/\.save \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(save).toContain("background: var(--dsw-alias-button-primary-fill)");
+    expect(save).toContain("color: var(--dsw-alias-label-primary-foreground)");
+    expect(save).not.toContain("--dsw-alias-label-on-color");
+  });
+});
 
 describe("connector settings panel", () => {
   it("hides credentials until a connector is enabled and switches WeChat fields with mode", () => {
@@ -52,6 +63,45 @@ describe("connector settings panel", () => {
     );
     expect(ilink).toContain('name="botToken"');
     expect(ilink).not.toContain('name="appId"');
+
+    const wecom = renderToStaticMarkup(
+      createElement(ConnectorSettingsPanel, {
+        platforms: { wecom: { enabled: true } },
+        onSave: () => {},
+      }),
+    );
+    expect(wecom).toContain('name="mode"');
+    expect(wecom).toContain("Self-built app");
+    expect(wecom).toContain("HTTP callback");
+    expect(wecom).toContain("AI bot long connection");
+    expect(wecom).not.toContain('name="app.corpId"');
+    expect(wecom).not.toContain('name="callback.token"');
+    expect(wecom).not.toContain('name="aibotWs.botId"');
+
+    const longConnection = renderToStaticMarkup(
+      createElement(ConnectorSettingsPanel, {
+        platforms: { wecom: { enabled: true, mode: "aibotWs" } },
+        onSave: () => {},
+      }),
+    );
+    expect(longConnection).toContain('name="aibotWs.botId"');
+    expect(longConnection).toContain('name="aibotWs.secret"');
+    expect(longConnection).toContain('name="aibotWs.wsUrl"');
+    expect(longConnection).toContain("Required");
+    expect(longConnection).toContain("Optional");
+    expect(longConnection).not.toContain('name="app.corpId"');
+    expect(longConnection).not.toContain('name="callback.token"');
+
+    const longConnectionZh = renderToStaticMarkup(
+      createElement(ConnectorSettingsPanel, {
+        locale: "zh",
+        platforms: { wecom: { enabled: true, mode: "aibotWs" } },
+        onSave: () => {},
+      }),
+    );
+    expect(longConnectionZh).toContain("智能机器人长连接");
+    expect(longConnectionZh).toContain("必填");
+    expect(longConnectionZh).toContain("选填");
 
     const chinese = renderToStaticMarkup(
       createElement(ConnectorSettingsPanel, {

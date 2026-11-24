@@ -241,6 +241,40 @@ describe("platform settings", () => {
     expect(fieldIsVisible("feishu", feishuAppId, { mode: "webhook" })).toBe(true);
   });
 
+  it("shows one WeCom connection form at a time and marks required fields", () => {
+    const wecomFields = PLATFORM_CATALOG.find((platform) => platform.id === "wecom")?.fields ?? [];
+    const fieldNamed = (key: string) => {
+      const found = wecomFields.find((field) => field.key === key);
+      if (found === undefined) throw new Error(`missing wecom field ${key}`);
+      return found;
+    };
+    const connection = fieldNamed("mode");
+    const botId = fieldNamed("aibotWs.botId");
+    const secret = fieldNamed("aibotWs.secret");
+    const wsUrl = fieldNamed("aibotWs.wsUrl");
+    const corpId = fieldNamed("app.corpId");
+    const callbackToken = fieldNamed("callback.token");
+
+    expect(fieldIsVisible("wecom", connection, { enabled: true })).toBe(true);
+    expect(fieldIsVisible("wecom", botId, { enabled: true })).toBe(false);
+    expect(fieldIsVisible("wecom", corpId, { enabled: true })).toBe(false);
+    expect(fieldIsVisible("wecom", callbackToken, { enabled: true })).toBe(false);
+
+    const longConnection = { enabled: true, mode: "aibotWs" };
+    expect(fieldIsVisible("wecom", botId, longConnection)).toBe(true);
+    expect(fieldIsVisible("wecom", secret, longConnection)).toBe(true);
+    expect(fieldIsVisible("wecom", wsUrl, longConnection)).toBe(true);
+    expect(fieldIsVisible("wecom", corpId, longConnection)).toBe(false);
+    expect(fieldIsVisible("wecom", callbackToken, longConnection)).toBe(false);
+    expect(botId.requirement).toBe("required");
+    expect(secret.requirement).toBe("required");
+    expect(wsUrl.requirement).toBe("optional");
+    expect(corpId.requirement).toBe("required");
+    expect(fieldNamed("app.apiBaseUrl").requirement).toBe("optional");
+    expect(callbackToken.requirement).toBe("required");
+    expect(fieldNamed("callback.receiveId").requirement).toBe("optional");
+  });
+
   it("reads, writes, and sanitizes platform records", () => {
     const record = setPath(
       setPath({ enabled: true }, "app.corpId", "ww"),
@@ -447,6 +481,45 @@ describe("platform settings", () => {
       (connectorNamed(withSocket, "wecom") as Connector & { getWsClient(): unknown }).getWsClient(),
     ).toBeDefined();
     expect(connectorNamed(withSocket, "dingtalk").getReceiver()).toBeUndefined();
+
+    const longConnection = preparePlatformSave({
+      wecom: {
+        enabled: true,
+        mode: "aibotWs",
+        aibotWs: { botId: "bot", secret: "secret" },
+        app: { corpId: "ww" },
+        callback: { receiveId: "ww" },
+      },
+    });
+    expect(longConnection.ok).toBe(true);
+    if (!longConnection.ok) return;
+    expect(longConnection.platforms.wecom).toEqual({
+      enabled: true,
+      mode: "aibotWs",
+      aibotWs: { botId: "bot", secret: "secret" },
+    });
+    const started = createConnectorsFromPlatformConfig({
+      wecom: {
+        enabled: true,
+        mode: "aibotWs",
+        aibotWs: { botId: "bot", secret: "secret" },
+        app: { corpId: "ww", corpSecret: "secret", agentId: "100" },
+        callback: { token: "token", encodingAesKey: WEIXIN_ENCODING_AES_KEY },
+      },
+    });
+    const wecom = connectorNamed(started, "wecom") as Connector & {
+      getWsClient(): unknown;
+      getApiClient(): { readonly app?: unknown };
+    };
+    expect(wecom.getWsClient()).toBeDefined();
+    expect(wecom.getApiClient().app).toBeUndefined();
+
+    const missingSecret = preparePlatformSave({
+      wecom: { enabled: true, mode: "aibotWs", aibotWs: { botId: "bot" } },
+    });
+    expect(missingSecret.ok).toBe(false);
+    if (missingSecret.ok) return;
+    expect(missingSecret.message).toMatch(/botId and secret/);
   });
 
   it("merges platform overrides without dropping sibling platforms or credential groups", () => {

@@ -1,5 +1,6 @@
 import type {
   FieldKind,
+  FieldRequirement,
   LocalizedText,
   PlatformDefinition,
   PlatformField,
@@ -17,7 +18,11 @@ interface FieldInput {
   readonly detailZh: string;
   readonly choices?: readonly string[];
   readonly modes?: readonly string[];
+  readonly requirement?: FieldRequirement;
+  readonly choiceLabels?: Readonly<Record<string, LocalizedText>>;
 }
+
+type FieldExtra = Pick<FieldInput, "modes" | "requirement" | "choiceLabels">;
 
 function field(input: FieldInput): PlatformField {
   return {
@@ -27,6 +32,8 @@ function field(input: FieldInput): PlatformField {
     description: { en: input.detailEn, zh: input.detailZh },
     ...(input.choices !== undefined ? { choices: input.choices } : {}),
     ...(input.modes !== undefined ? { modes: input.modes } : {}),
+    ...(input.requirement !== undefined ? { requirement: input.requirement } : {}),
+    ...(input.choiceLabels !== undefined ? { choiceLabels: input.choiceLabels } : {}),
   };
 }
 
@@ -36,7 +43,7 @@ function text(
   zh: string,
   detailEn: string,
   detailZh: string,
-  extra?: Pick<FieldInput, "modes">,
+  extra?: FieldExtra,
 ): PlatformField {
   return field({ key, kind: "string", en, zh, detailEn, detailZh, ...extra });
 }
@@ -47,7 +54,7 @@ function secret(
   zh: string,
   detailEn: string,
   detailZh: string,
-  extra?: Pick<FieldInput, "modes">,
+  extra?: FieldExtra,
 ): PlatformField {
   return field({ key, kind: "secret", en, zh, detailEn, detailZh, ...extra });
 }
@@ -58,8 +65,9 @@ function bool(
   zh: string,
   detailEn: string,
   detailZh: string,
+  extra?: FieldExtra,
 ): PlatformField {
-  return field({ key, kind: "boolean", en, zh, detailEn, detailZh });
+  return field({ key, kind: "boolean", en, zh, detailEn, detailZh, ...extra });
 }
 
 function choice(
@@ -69,7 +77,7 @@ function choice(
   detailEn: string,
   detailZh: string,
   choices: readonly string[],
-  extra?: Pick<FieldInput, "modes">,
+  extra?: FieldExtra,
 ): PlatformField {
   return field({ key, kind: "enum", en, zh, detailEn, detailZh, choices, ...extra });
 }
@@ -95,6 +103,27 @@ const lines = list;
 
 const OFFICIAL = ["official-account"] as const;
 const ILINK = ["ilink"] as const;
+
+/** Stored `mode` for a WeCom self-built app. */
+export const WECOM_CONNECTION_APP = "app" as const;
+/** Stored `mode` for a WeCom HTTP callback. */
+export const WECOM_CONNECTION_CALLBACK = "callback" as const;
+/**
+ * Stored `mode` for a WeCom AI bot long connection.
+ * The subscribe frame requires only `bot_id` and `secret`.
+ * @see https://developer.work.weixin.qq.com/document/path/101463
+ */
+export const WECOM_CONNECTION_AIBOT_WS = "aibotWs" as const;
+
+export const WECOM_CONNECTIONS = [
+  WECOM_CONNECTION_APP,
+  WECOM_CONNECTION_CALLBACK,
+  WECOM_CONNECTION_AIBOT_WS,
+] as const;
+
+const WECOM_APP = [WECOM_CONNECTION_APP] as const;
+const WECOM_CALLBACK = [WECOM_CONNECTION_CALLBACK] as const;
+const WECOM_AIBOT_WS = [WECOM_CONNECTION_AIBOT_WS] as const;
 
 const feishu: PlatformDefinition = {
   id: "feishu",
@@ -462,20 +491,58 @@ const dingtalk: PlatformDefinition = {
   ],
 };
 
+/**
+ * Three mutually exclusive WeCom connection forms. Pick one, then only that
+ * form's credentials are shown and saved.
+ *
+ * Self-built app: corpid and corpsecret obtain the access token, and agentid
+ * identifies the app. API base URL and duplicate-check settings are optional.
+ * @see https://developer.work.weixin.qq.com/document/path/91039
+ * @see https://developer.work.weixin.qq.com/document/path/96458
+ *
+ * HTTP callback: Token and EncodingAESKey are required. receiveId is optional;
+ * an intelligent-bot callback uses an empty receiveId.
+ * @see https://developer.work.weixin.qq.com/document/path/90930
+ * @see https://developer.work.weixin.qq.com/document/path/101033
+ *
+ * AI bot long connection: `aibot_subscribe` requires only `bot_id` and `secret`.
+ * That secret is the long-connection key, not the HTTP callback Token or
+ * EncodingAESKey. WeCom publishes the WebSocket URL, so `wsUrl` is optional.
+ * @see https://developer.work.weixin.qq.com/document/path/101463
+ */
 const wecom: PlatformDefinition = {
   id: "wecom",
   label: { en: "WeCom", zh: "企业微信" },
   description: {
-    en: "WeCom self-built app, HTTP callback, or AI bot WebSocket. Each group you fill in must include its required credentials.",
-    zh: "企业微信自建应用、HTTP 回调或智能机器人 WebSocket。填写某一组时需要带上该组的必填凭据。",
+    en: "Choose one connection. A self-built app, an HTTP callback, and an AI bot long connection each use their own credentials.",
+    zh: "先选择一种接入形式。自建应用、HTTP 回调和智能机器人长连接各自使用一套凭据。",
   },
   fields: [
+    choice(
+      "mode",
+      "Connection",
+      "接入形式",
+      "Self-built app, HTTP callback, or AI bot long connection.",
+      "自建应用、HTTP 回调，或智能机器人长连接。",
+      WECOM_CONNECTIONS,
+      {
+        choiceLabels: {
+          [WECOM_CONNECTION_APP]: { en: "Self-built app", zh: "自建应用" },
+          [WECOM_CONNECTION_CALLBACK]: { en: "HTTP callback", zh: "HTTP 回调" },
+          [WECOM_CONNECTION_AIBOT_WS]: {
+            en: "AI bot long connection",
+            zh: "智能机器人长连接",
+          },
+        },
+      },
+    ),
     text(
       "app.corpId",
       "Corp ID",
       "企业 ID",
       "Self-built app corpid.",
       "自建应用的企业 ID（corpid）。",
+      { modes: WECOM_APP, requirement: "required" },
     ),
     secret(
       "app.corpSecret",
@@ -483,14 +550,19 @@ const wecom: PlatformDefinition = {
       "应用 Secret",
       "Self-built app corpsecret.",
       "自建应用的 corpsecret。",
+      { modes: WECOM_APP, requirement: "required" },
     ),
-    text("app.agentId", "Agent ID", "AgentId", "Self-built app agentid.", "自建应用的 agentid。"),
+    text("app.agentId", "Agent ID", "AgentId", "Self-built app agentid.", "自建应用的 agentid。", {
+      modes: WECOM_APP,
+      requirement: "required",
+    }),
     text(
       "app.apiBaseUrl",
       "API base URL",
       "API 基址",
       "WeCom API base URL for the self-built app.",
       "自建应用使用的企业微信 API 基址。",
+      { modes: WECOM_APP, requirement: "optional" },
     ),
     bool(
       "app.enableDuplicateCheck",
@@ -498,6 +570,7 @@ const wecom: PlatformDefinition = {
       "开启重复消息检查",
       "Enable WeCom duplicate message checking.",
       "开启企业微信重复消息检查。",
+      { modes: WECOM_APP, requirement: "optional" },
     ),
     field({
       key: "app.duplicateCheckIntervalSeconds",
@@ -506,6 +579,8 @@ const wecom: PlatformDefinition = {
       zh: "重复消息检查间隔",
       detailEn: "duplicate_check_interval in seconds.",
       detailZh: "重复消息检查间隔（秒）。",
+      modes: WECOM_APP,
+      requirement: "optional",
     }),
     secret(
       "callback.token",
@@ -513,6 +588,7 @@ const wecom: PlatformDefinition = {
       "回调 Token",
       "HTTP callback token.",
       "HTTP 回调 Token。",
+      { modes: WECOM_CALLBACK, requirement: "required" },
     ),
     secret(
       "callback.encodingAesKey",
@@ -520,34 +596,39 @@ const wecom: PlatformDefinition = {
       "回调 EncodingAESKey",
       "HTTP callback EncodingAESKey.",
       "HTTP 回调 EncodingAESKey。",
+      { modes: WECOM_CALLBACK, requirement: "required" },
     ),
     text(
       "callback.receiveId",
       "Callback receive ID",
       "回调 receiveId",
-      "Optional receiveId. Defaults to the app corp ID.",
-      "可选 receiveId。默认使用应用的企业 ID。",
+      "Optional receiveId. Defaults to the app corp ID. An intelligent-bot callback uses an empty string.",
+      "可选 receiveId。默认使用应用的企业 ID。智能机器人回调使用空字符串。",
+      { modes: WECOM_CALLBACK, requirement: "optional" },
     ),
     text(
       "aibotWs.botId",
-      "AI bot ID",
-      "智能机器人 BotId",
-      "AI bot WebSocket botId.",
-      "智能机器人 WebSocket 的 botId。",
+      "Bot ID",
+      "Bot ID",
+      "AI bot BotID for the long connection.",
+      "智能机器人长连接的 BotID。",
+      { modes: WECOM_AIBOT_WS, requirement: "required" },
     ),
     secret(
       "aibotWs.secret",
-      "AI bot secret",
-      "智能机器人 Secret",
-      "AI bot WebSocket secret.",
-      "智能机器人 WebSocket 的 secret。",
+      "Secret",
+      "Secret",
+      "Long-connection secret. This is not the HTTP callback Token or EncodingAESKey.",
+      "长连接 Secret。不是 HTTP 回调的 Token 或 EncodingAESKey。",
+      { modes: WECOM_AIBOT_WS, requirement: "required" },
     ),
     text(
       "aibotWs.wsUrl",
-      "AI bot WebSocket URL",
-      "智能机器人 WebSocket 地址",
-      "Optional AI bot WebSocket URL.",
-      "可选的智能机器人 WebSocket 地址。",
+      "WebSocket URL",
+      "WebSocket 地址",
+      "Optional override. WeCom publishes the default long-connection URL.",
+      "可选。企业微信公布了默认长连接地址。",
+      { modes: WECOM_AIBOT_WS, requirement: "optional" },
     ),
     lines(
       "selfUserIds",
@@ -576,6 +657,7 @@ const wecom: PlatformDefinition = {
       "默认附带上下文标记",
       "Attach a context marker on outbound app messages.",
       "自建应用出站消息默认附带上下文标记。",
+      { modes: WECOM_APP, requirement: "optional" },
     ),
     choice(
       "inboundDeliveryMode",
