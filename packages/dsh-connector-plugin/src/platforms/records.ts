@@ -112,7 +112,16 @@ export function sanitizePlatforms(
     if (typeof record.enabled === "boolean") {
       next = { enabled: record.enabled };
     }
+    const rawMode = record.mode;
+    const selectedMode = typeof rawMode === "string" ? rawMode.trim() : "";
     for (const field of fieldsByPlatform.get(id) ?? []) {
+      if (
+        selectedMode.length > 0 &&
+        field.modes !== undefined &&
+        !field.modes.includes(selectedMode)
+      ) {
+        continue;
+      }
       const value = sanitizeFieldValue(field, getPath(record, field.key));
       if (value !== undefined) {
         next = setPath(next, field.key, value);

@@ -19,6 +19,12 @@ import {
 } from "./records";
 import type { PlatformId, PlatformRecord, PlatformsConfig } from "./types";
 import { PLATFORM_IDS } from "./types";
+import {
+  WECOM_CONNECTION_AIBOT_WS,
+  WECOM_CONNECTION_APP,
+  WECOM_CONNECTION_CALLBACK,
+  WECOM_CONNECTIONS,
+} from "./catalog";
 import { collectPlatformIssues } from "./validate";
 
 const AUTO_ARCHIVE_MINUTES = {
@@ -141,11 +147,15 @@ function buildDingTalk(record: PlatformRecord): Connector {
 }
 
 function buildWeCom(record: PlatformRecord): Connector {
+  const connection = readChoice(record, "mode", WECOM_CONNECTIONS);
   const corpId = readString(record, "app.corpId");
   const corpSecret = readString(record, "app.corpSecret");
   const agentId = readId(record, "app.agentId");
   const app =
-    corpId !== undefined && corpSecret !== undefined && agentId !== undefined
+    (connection === undefined || connection === WECOM_CONNECTION_APP) &&
+    corpId !== undefined &&
+    corpSecret !== undefined &&
+    agentId !== undefined
       ? {
           corpId,
           corpSecret,
@@ -162,7 +172,9 @@ function buildWeCom(record: PlatformRecord): Connector {
   const callbackToken = readString(record, "callback.token");
   const encodingAesKey = readString(record, "callback.encodingAesKey");
   const callback =
-    callbackToken !== undefined && encodingAesKey !== undefined
+    (connection === undefined || connection === WECOM_CONNECTION_CALLBACK) &&
+    callbackToken !== undefined &&
+    encodingAesKey !== undefined
       ? {
           token: callbackToken,
           encodingAesKey,
@@ -173,7 +185,9 @@ function buildWeCom(record: PlatformRecord): Connector {
   const botId = readString(record, "aibotWs.botId");
   const secret = readString(record, "aibotWs.secret");
   const aibotWs =
-    botId !== undefined && secret !== undefined
+    (connection === undefined || connection === WECOM_CONNECTION_AIBOT_WS) &&
+    botId !== undefined &&
+    secret !== undefined
       ? {
           botId,
           secret,
@@ -190,7 +204,9 @@ function buildWeCom(record: PlatformRecord): Connector {
     ...defined("requireMentionInGroup", readBoolean(record, "requireMentionInGroup")),
     ...defined(
       "includeContextMarkerByDefault",
-      readBoolean(record, "includeContextMarkerByDefault"),
+      connection === undefined || connection === WECOM_CONNECTION_APP
+        ? readBoolean(record, "includeContextMarkerByDefault")
+        : undefined,
     ),
     ...defined(
       "inboundDeliveryMode",

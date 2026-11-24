@@ -11,6 +11,8 @@
     "unavailable": "Connector settings are unavailable because this host did not provide a configuration form.",
     "defaultOption": "Connector default",
     "platformList": "Connectors",
-    "enableHint": "Enable this connector to fill in the credentials and options it reads."
+    "enableHint": "Enable this connector to fill in the credentials and options it reads.",
+    "required": "Required",
+    "optional": "Optional"
   }
 }

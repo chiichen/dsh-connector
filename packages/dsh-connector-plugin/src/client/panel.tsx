@@ -24,6 +24,8 @@ interface ChromeCopy {
   readonly defaultOption: string;
   readonly platformList: string;
   readonly enableHint: string;
+  readonly required: string;
+  readonly optional: string;
 }
 
 const CHROME: Record<SettingsLocale, ChromeCopy> = {
@@ -60,6 +62,16 @@ function listValue(record: PlatformRecord | undefined, key: string): string {
   return value.filter((item): item is string => typeof item === "string").join("\n");
 }
 
+function requirementText(field: PlatformField, locale: SettingsLocale): string | undefined {
+  if (field.requirement === undefined) return undefined;
+  return CHROME[locale][field.requirement];
+}
+
+function choiceText(field: PlatformField, choice: string, locale: SettingsLocale): string {
+  const labels = field.choiceLabels?.[choice];
+  return labels === undefined ? choice : textOf(labels, locale);
+}
+
 function FieldControl(props: {
   readonly field: PlatformField;
   readonly record: PlatformRecord | undefined;
@@ -73,6 +85,7 @@ function FieldControl(props: {
   const inputId = `dsh-connector-${field.key.replaceAll(".", "-")}`;
   const label = textOf(field.label, locale);
   const detail = textOf(field.description, locale);
+  const requirement = requirementText(field, locale);
 
   if (field.kind === "boolean") {
     const checked = readOwn(record, field.key) === true;
@@ -88,6 +101,7 @@ function FieldControl(props: {
           }}
         />
         <span>{label}</span>
+        {requirement === undefined ? null : <span className={css.requirement}>{requirement}</span>}
       </label>
     );
   }
@@ -108,7 +122,7 @@ function FieldControl(props: {
         <option value="">{CHROME[locale].defaultOption}</option>
         {(field.choices ?? []).map((choice) => (
           <option key={choice} value={choice}>
-            {choice}
+            {choiceText(field, choice, locale)}
           </option>
         ))}
       </select>
@@ -167,7 +181,10 @@ function FieldControl(props: {
 
   return (
     <label className={css.field} htmlFor={inputId}>
-      <span>{label}</span>
+      <span className={css.fieldLabel}>
+        <span>{label}</span>
+        {requirement === undefined ? null : <span className={css.requirement}>{requirement}</span>}
+      </span>
       {control}
       <span className={css.hint}>{detail}</span>
     </label>

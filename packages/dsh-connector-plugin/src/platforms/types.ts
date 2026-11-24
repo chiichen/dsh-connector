@@ -19,6 +19,10 @@ export type PlatformId = (typeof PLATFORM_IDS)[number];
 
 export type FieldKind = "string" | "secret" | "boolean" | "number" | "enum" | "string-list";
 
+export const FIELD_REQUIREMENTS = ["required", "optional"] as const;
+
+export type FieldRequirement = (typeof FIELD_REQUIREMENTS)[number];
+
 export interface LocalizedText {
   readonly en: string;
   readonly zh: string;
@@ -32,6 +36,10 @@ export interface PlatformField {
   readonly choices?: readonly string[];
   /** When set, the field is shown only while `mode` is one of these values. */
   readonly modes?: readonly string[];
+  /** Shown beside the label so a connection form can mark required and optional fields. */
+  readonly requirement?: FieldRequirement;
+  /** Display labels for enum choices. Choices without a label use the stored value. */
+  readonly choiceLabels?: Readonly<Record<string, LocalizedText>>;
 }
 
 export interface PlatformDefinition {

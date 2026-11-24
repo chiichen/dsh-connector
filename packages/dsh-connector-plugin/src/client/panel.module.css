@@ -84,6 +84,18 @@
   padding: 8px 12px;
 }
 
+.fieldLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.requirement {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .hint {
   margin: 0;
   color: var(--dsw-alias-label-secondary);
@@ -99,12 +111,20 @@
   white-space: pre-wrap;
 }
 
+/*
+ * Host settings primary buttons pair the theme-aware primary fill with
+ * --dsw-alias-label-primary-foreground. In dark theme the fill follows
+ * brand-primary (near-white) while --dsw-alias-label-on-color stays near-white,
+ * so that pair is unreadable. The foreground token flips to near-black.
+ * @see packages/client/ui-theme/src/styles/design-platform.css (dsh-v0.2.2-rc.5)
+ * @see packages/client/ui-settings-models/src/client/ModelsSection.module.css
+ */
 .save {
   align-self: flex-start;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-on-color);
+  color: var(--dsw-alias-label-primary-foreground);
   cursor: pointer;
   font-family: inherit;
   font-size: 14px;

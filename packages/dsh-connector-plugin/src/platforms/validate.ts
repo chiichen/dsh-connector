@@ -1,4 +1,10 @@
-import { PLATFORM_CATALOG } from "./catalog";
+import {
+  PLATFORM_CATALOG,
+  WECOM_CONNECTION_AIBOT_WS,
+  WECOM_CONNECTION_APP,
+  WECOM_CONNECTION_CALLBACK,
+  WECOM_CONNECTIONS,
+} from "./catalog";
 import {
   getPath,
   isRecord,
@@ -88,40 +94,73 @@ function present(value: unknown): boolean {
   return value !== undefined;
 }
 
+const WECOM_APP_REQUIREMENT = "wecom app requires corpId, corpSecret, and agentId together.";
+const WECOM_CALLBACK_REQUIREMENT = "wecom callback requires token and encodingAesKey together.";
+/**
+ * Long-connection subscribe body fields `bot_id` and `secret` are both required.
+ * `wsUrl` stays optional because WeCom publishes the default socket address.
+ * @see https://developer.work.weixin.qq.com/document/path/101463
+ */
+const WECOM_AIBOT_REQUIREMENT = "wecom aibotWs requires botId and secret together.";
+
+function wecomAppReady(record: PlatformRecord): boolean {
+  return (
+    readString(record, "app.corpId") !== undefined &&
+    readString(record, "app.corpSecret") !== undefined &&
+    readId(record, "app.agentId") !== undefined
+  );
+}
+
+function wecomCallbackReady(record: PlatformRecord): boolean {
+  return (
+    readString(record, "callback.token") !== undefined &&
+    readString(record, "callback.encodingAesKey") !== undefined
+  );
+}
+
+function wecomAibotReady(record: PlatformRecord): boolean {
+  return (
+    readString(record, "aibotWs.botId") !== undefined &&
+    readString(record, "aibotWs.secret") !== undefined
+  );
+}
+
 function wecomIssues(record: PlatformRecord): string[] {
+  const connection = readChoice(record, "mode", WECOM_CONNECTIONS);
+  if (connection === WECOM_CONNECTION_APP) {
+    return wecomAppReady(record) ? [] : [WECOM_APP_REQUIREMENT];
+  }
+  if (connection === WECOM_CONNECTION_CALLBACK) {
+    return wecomCallbackReady(record) ? [] : [WECOM_CALLBACK_REQUIREMENT];
+  }
+  if (connection === WECOM_CONNECTION_AIBOT_WS) {
+    return wecomAibotReady(record) ? [] : [WECOM_AIBOT_REQUIREMENT];
+  }
+
   const issues: string[] = [];
-  const corpId = readString(record, "app.corpId");
-  const corpSecret = readString(record, "app.corpSecret");
-  const agentId = readId(record, "app.agentId");
   const anyApp = [
-    corpId,
-    corpSecret,
-    agentId,
+    readString(record, "app.corpId"),
+    readString(record, "app.corpSecret"),
+    readId(record, "app.agentId"),
     readString(record, "app.apiBaseUrl"),
     readBoolean(record, "app.enableDuplicateCheck"),
     readNumber(record, "app.duplicateCheckIntervalSeconds"),
   ].some(present);
-  if (anyApp && (corpId === undefined || corpSecret === undefined || agentId === undefined)) {
-    issues.push("wecom app requires corpId, corpSecret, and agentId together.");
-  }
+  if (anyApp && !wecomAppReady(record)) issues.push(WECOM_APP_REQUIREMENT);
 
-  const callbackToken = readString(record, "callback.token");
-  const encodingAesKey = readString(record, "callback.encodingAesKey");
   const anyCallback = [
-    callbackToken,
-    encodingAesKey,
+    readString(record, "callback.token"),
+    readString(record, "callback.encodingAesKey"),
     readString(record, "callback.receiveId"),
   ].some(present);
-  if (anyCallback && (callbackToken === undefined || encodingAesKey === undefined)) {
-    issues.push("wecom callback requires token and encodingAesKey together.");
-  }
+  if (anyCallback && !wecomCallbackReady(record)) issues.push(WECOM_CALLBACK_REQUIREMENT);
 
-  const botId = readString(record, "aibotWs.botId");
-  const secret = readString(record, "aibotWs.secret");
-  const anySocket = [botId, secret, readString(record, "aibotWs.wsUrl")].some(present);
-  if (anySocket && (botId === undefined || secret === undefined)) {
-    issues.push("wecom aibotWs requires botId and secret together.");
-  }
+  const anySocket = [
+    readString(record, "aibotWs.botId"),
+    readString(record, "aibotWs.secret"),
+    readString(record, "aibotWs.wsUrl"),
+  ].some(present);
+  if (anySocket && !wecomAibotReady(record)) issues.push(WECOM_AIBOT_REQUIREMENT);
   return issues;
 }
 
