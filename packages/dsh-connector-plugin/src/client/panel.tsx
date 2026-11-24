@@ -13,10 +13,16 @@ import {
   PLATFORM_BY_ID,
   PLATFORM_CATALOG,
   fieldIsVisible,
+  inferredEnumChoice,
   platformsWithDisplayedDefaults,
   textOf,
 } from "../platforms/catalog";
-import type { PlatformField, PlatformRecord, PlatformsConfig } from "../platforms/types";
+import type {
+  PlatformField,
+  PlatformId,
+  PlatformRecord,
+  PlatformsConfig,
+} from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
 import { samePlatforms, secretWasRedacted } from "./persist";
@@ -56,10 +62,22 @@ function stringValue(record: PlatformRecord | undefined, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function enumValue(record: PlatformRecord | undefined, field: PlatformField): string {
+function enumFallback(
+  platformId: PlatformId,
+  record: PlatformRecord | undefined,
+  field: PlatformField,
+): string | undefined {
+  return inferredEnumChoice(platformId, field, record) ?? field.defaultChoice;
+}
+
+function enumValue(
+  platformId: PlatformId,
+  record: PlatformRecord | undefined,
+  field: PlatformField,
+): string {
   const stored = stringValue(record, field.key);
   if (stored.length > 0) return stored;
-  return field.defaultChoice ?? "";
+  return enumFallback(platformId, record, field) ?? "";
 }
 
 function readOwn(record: PlatformRecord | undefined, key: string): unknown {
@@ -90,6 +108,7 @@ function choiceText(field: PlatformField, choice: string, locale: SettingsLocale
 }
 
 function FieldControl(props: {
+  readonly platformId: PlatformId;
   readonly field: PlatformField;
   readonly record: PlatformRecord | undefined;
   readonly locale: SettingsLocale;
@@ -98,7 +117,8 @@ function FieldControl(props: {
     value: string | boolean | number | readonly string[] | undefined,
   ) => void;
 }): ReactElement {
-  const { field, record, locale, onChange } = props;
+  const { platformId, field, record, locale, onChange } = props;
+  const fallback = enumFallback(platformId, record, field);
   const inputId = `dsh-connector-${field.key.replaceAll(".", "-")}`;
   const label = textOf(field.label, locale);
   const detail = textOf(field.description, locale);
@@ -131,15 +151,13 @@ function FieldControl(props: {
         id={inputId}
         name={field.key}
         className={css.control}
-        value={enumValue(record, field)}
+        value={enumValue(platformId, record, field)}
         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
           const next = event.currentTarget.value;
-          onChange(field.key, field.defaultChoice === undefined && next === "" ? undefined : next);
+          onChange(field.key, fallback === undefined && next === "" ? undefined : next);
         }}
       >
-        {field.defaultChoice === undefined ? (
-          <option value="">{CHROME[locale].defaultOption}</option>
-        ) : null}
+        {fallback === undefined ? <option value="">{CHROME[locale].defaultOption}</option> : null}
         {(field.choices ?? []).map((choice) => (
           <option key={choice} value={choice}>
             {choiceText(field, choice, locale)}
@@ -330,6 +348,7 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
               .map((field) => (
                 <FieldControl
                   key={field.key}
+                  platformId={definition.id}
                   field={field}
                   record={record}
                   locale={locale}

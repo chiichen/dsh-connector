@@ -16,6 +16,7 @@ import {
 import {
   PLATFORM_CATALOG,
   fieldIsVisible,
+  inferredEnumChoice,
   platformsWithDisplayedDefaults,
 } from "../src/platforms/catalog";
 import { readPlatformsConfig } from "../src/platforms/read";
@@ -272,6 +273,57 @@ describe("platform settings", () => {
     if (weixinAppId === undefined || feishuAppId === undefined) {
       throw new Error("missing catalog fields");
     }
+    const enumNamed = (platformId: "slack" | "dingtalk" | "telegram", key: string) => {
+      const found = PLATFORM_CATALOG.find((platform) => platform.id === platformId)?.fields.find(
+        (field) => field.key === key,
+      );
+      if (found === undefined) throw new Error(`missing ${platformId}.${key}`);
+      return found;
+    };
+    expect(inferredEnumChoice("slack", enumNamed("slack", "mode"), {})).toBe("webhook");
+    expect(inferredEnumChoice("slack", enumNamed("slack", "mode"), { appToken: "xapp" })).toBe(
+      "socket",
+    );
+    expect(
+      inferredEnumChoice("slack", enumNamed("slack", "mode"), {
+        appToken: "xapp",
+        signingSecret: "sign",
+      }),
+    ).toBe("hybrid");
+    expect(inferredEnumChoice("dingtalk", enumNamed("dingtalk", "inboundMode"), {})).toBe(
+      "webhook",
+    );
+    expect(
+      inferredEnumChoice("dingtalk", enumNamed("dingtalk", "inboundMode"), {
+        clientId: "id",
+        clientSecret: "secret",
+      }),
+    ).toBe("stream");
+    expect(inferredEnumChoice("telegram", enumNamed("telegram", "mode"), {})).toBe("polling");
+    expect(
+      inferredEnumChoice("telegram", enumNamed("telegram", "mode"), {
+        webhookSecretToken: "hook",
+      }),
+    ).toBe("webhook");
+    expect(
+      platformsWithDisplayedDefaults({
+        feishu: { enabled: true, appId: "cli", appSecret: "secret" },
+        slack: { enabled: true, botToken: "xoxb", appToken: "xapp" },
+      }),
+    ).toMatchObject({
+      feishu: {
+        mode: "webhook",
+        groupMentionPolicy: "mention-required",
+        contextMarker: "auto",
+        defaultOutboundFormat: "text",
+      },
+      slack: { deliveryMode: "queue", threadReplyPolicy: "all" },
+    });
+    expect(
+      platformsWithDisplayedDefaults({
+        slack: { enabled: true, botToken: "xoxb", appToken: "xapp" },
+      }).slack?.mode,
+    ).toBeUndefined();
     expect(fieldIsVisible("weixin", weixinAppId, {})).toBe(true);
     expect(fieldIsVisible("weixin", weixinAppId, { mode: " ilink " })).toBe(false);
     expect(fieldIsVisible("feishu", feishuAppId, { mode: "webhook" })).toBe(true);
