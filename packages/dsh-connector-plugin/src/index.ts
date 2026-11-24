@@ -94,13 +94,16 @@ export interface ConnectorPluginRuntime {
   dispose(): Promise<void>;
 }
 
+/** Cleanup Cordis collects from `apply`. Calling it twice is safe. */
+export type ConnectorPluginDisposer = () => Promise<void>;
+
 export interface ConnectorCordisPlugin {
   readonly name: typeof name;
   readonly inject: typeof inject;
   apply(
     ctx: Context,
     overrideConfig?: Partial<ConnectorPluginConfig>,
-  ): Promise<ConnectorPluginRuntime>;
+  ): Promise<ConnectorPluginDisposer>;
 }
 
 async function resolveContextStore(
@@ -239,10 +242,19 @@ export async function mountConnectorPlugin(
   };
 }
 
+/**
+ * Cordis treats this function's return value as the plugin effect.
+ * The promise must settle to a disposer or to nothing. A runtime object is
+ * `TypeError: Invalid effect` inside `safeCollect`.
+ *
+ * https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/cordis/src/fiber.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-tutorial/02-lifecycle-and-effects.md
+ * https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/index.zh.md
+ */
 export async function apply(
   ctx: Context,
   config: ConnectorPluginConfig = {},
-): Promise<ConnectorPluginRuntime> {
+): Promise<ConnectorPluginDisposer> {
   const state: { disposed: boolean; runtime?: ConnectorPluginRuntime } = { disposed: false };
 
   ctx.effect(() => {
@@ -261,7 +273,10 @@ export async function apply(
     await runtime.dispose();
   }
 
-  return runtime;
+  return async () => {
+    state.disposed = true;
+    await runtime.dispose();
+  };
 }
 
 export function createConnectorPlugin(defaultConfig: ConnectorPluginConfig): ConnectorCordisPlugin {

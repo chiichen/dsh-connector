@@ -28,6 +28,7 @@
     "build": "tsdown && tsdown --config tsdown.client.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",
+    "test:dsh-boot": "node scripts/dsh-boot.mjs",
     "lint": "eslint .",
     "oxlint": "oxlint",
     "oxfmt": "oxfmt --check"

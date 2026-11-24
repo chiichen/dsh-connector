@@ -135,6 +135,20 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     expect(alerts.stopped).toBe(true);
   });
 
+  it("activates through Cordis plugin loading without an invalid effect", async () => {
+    const host = await TestDshHost.start({ withWebServer: false });
+    try {
+      await host.ctx.plugin({
+        name,
+        inject,
+        Config,
+        apply,
+      });
+    } finally {
+      await host.stop();
+    }
+  });
+
   it("persists and reloads ContextSessionStore across cold host restarts via real ctx.storageDomain", async () => {
     const storageRoot = await mkdtemp(join(tmpdir(), "dsh-plugin-domain-"));
     tempDirs.push(storageRoot);
@@ -227,7 +241,7 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
         }),
       });
 
-      const probeRuntime = await apply(host.ctx, { connectors: [loggerProbeConnector] });
+      const disposeProbe = await apply(host.ctx, { connectors: [loggerProbeConnector] });
       expect(capturedLogger).toBeDefined();
       capturedLogger!.debug("dbg plain");
       capturedLogger!.debug("dbg meta", { a: 1 });
@@ -237,7 +251,7 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
       capturedLogger!.warn("warn meta", { a: 1 });
       capturedLogger!.error("err plain");
       capturedLogger!.error("err meta", { a: 1 });
-      await probeRuntime.dispose();
+      await disposeProbe();
 
       // 2. Explicit contextStore, explicit logger, custom toolNamePrefix, deduplication, workspaceId, webhook disabled
       const customStore = new DefaultContextSessionStore();
@@ -269,7 +283,7 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
         connectors: [alerts],
         webhook: { basePath: "/custom-hooks" },
       });
-      const mergedRuntime = await mergedPlugin.apply(host.ctx, {
+      const disposeMerged = await mergedPlugin.apply(host.ctx, {
         webhook: { maxBodyBytes: 1024 },
       });
       const customChallenge = await fetch(
@@ -277,7 +291,7 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
       );
       expect(customChallenge.status).toBe(200);
       expect(await customChallenge.text()).toBe("merged-ok");
-      await mergedRuntime.dispose();
+      await disposeMerged();
 
       // 4. mountConnectorPlugin rollback when connector.start() throws
       const brokenConnector = defineConnector({
@@ -303,8 +317,8 @@ describe("dsh-connector-plugin Cordis E2E integration", () => {
     const raceHost = await TestDshHost.start({ withWebServer: false });
     try {
       // Default apply(ctx) with no second argument before disposing raceHost
-      const defaultApplyRuntime = await apply(raceHost.ctx);
-      await defaultApplyRuntime.dispose();
+      const disposeDefault = await apply(raceHost.ctx);
+      await disposeDefault();
 
       let releaseStart!: () => void;
       let stoppedAfterRace = false;
