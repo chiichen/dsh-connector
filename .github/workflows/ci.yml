@@ -27,8 +27,8 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  dsh-boot:
-    name: dsh-boot
+  dsh-host:
+    name: dsh-host
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -39,4 +39,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec turbo run build --filter dsh-connector-plugin
-      - run: pnpm --filter dsh-connector-plugin run test:dsh-boot
+      - run: pnpm --filter dsh-connector-plugin run test:dsh-host
