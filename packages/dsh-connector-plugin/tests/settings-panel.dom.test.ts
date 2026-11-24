@@ -186,17 +186,23 @@ describe("connector settings interaction", () => {
         .querySelector('[data-platform="wecom"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(wecom.container.querySelector('input[name="aibotWs.botId"]')).toBeNull();
-    expect(wecom.container.querySelector('input[name="app.corpId"]')).toBeNull();
     const connection = wecom.container.querySelector('select[name="mode"]');
     if (!(connection instanceof HTMLSelectElement)) throw new Error("missing WeCom connection");
-    await act(async () => {
-      setControlValue(connection, "aibotWs");
-    });
+    expect(connection.value).toBe("aibotWs");
+    expect([...connection.options].map((option) => option.value)).toEqual([
+      "app",
+      "callback",
+      "aibotWs",
+    ]);
     expect(wecom.container.querySelector('input[name="aibotWs.botId"]')).not.toBeNull();
     expect(wecom.container.querySelector('input[name="aibotWs.secret"]')).not.toBeNull();
     expect(wecom.container.querySelector('input[name="app.corpId"]')).toBeNull();
     expect(wecom.container.querySelector('input[name="callback.token"]')).toBeNull();
+    await act(async () => {
+      setControlValue(connection, "app");
+    });
+    expect(wecom.container.querySelector('input[name="app.corpId"]')).not.toBeNull();
+    expect(wecom.container.querySelector('input[name="aibotWs.botId"]')).toBeNull();
     await unmount(wecom);
 
     const writes: unknown[] = [];
