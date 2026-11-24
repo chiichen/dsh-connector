@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: { client: "src/client/index.ts" },
+  entry: { client: "src/client/index.tsx" },
   format: ["esm"],
   platform: "browser",
   target: "es2024",
