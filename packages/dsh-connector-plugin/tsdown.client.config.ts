@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { defineConfig } from "tsdown";
@@ -19,19 +20,72 @@ interface ClientStylesheetPlugin {
   writeBundle(options: unknown, bundle: Record<string, ClientChunk | ClientAsset>): Promise<void>;
 }
 
-const PLUGIN_ID = "dsh-connector-plugin";
 const STYLE_TOKEN = "___DSH_STYLES___";
+const INJECT_TOKEN = "/*__dsh_style_inject__*/";
+const pluginId = packageName(import.meta.dirname);
+
+/**
+ * Install one CSS Module for both dsh hosts this package can boot.
+ *
+ * Published `@deepseek-ai/dsh@0.2.2-rc.5` drops `meta` and keeps only
+ * `<style data-plugin>` tags created while the factory runs.
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/modules/src/client/system.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/tsdown.client.ts
+ *
+ * `0.2.3-alpha` DocumentStyles reads `meta().stylesheets` and inserts
+ * `<style data-plugin>` after the module materializes.
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.3-alpha.2/packages/client/ui-renderer/src/client/styles/document-styles.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.3-alpha.2/packages/util/package-manifest/src/client-module.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.3-alpha.2/packages/client/tsdown.client.ts
+ */
+export interface ClientStyleInstall {
+  readonly injection: string;
+  readonly stylesheets: string;
+}
+
+export function clientStyleInstall(
+  ownerId: string,
+  stylesheetPath: string,
+  css: string,
+): ClientStyleInstall {
+  const fileName = stylesheetPath.slice(stylesheetPath.lastIndexOf("/") + 1);
+  const tagId = `${ownerId}/${fileName}`;
+  const cssLiteral = JSON.stringify(css);
+  const quotedTagId = JSON.stringify(JSON.stringify(tagId));
+  const injection = [
+    "if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + " +
+      quotedTagId +
+      " + ']') === null) {",
+    "  const style = document.createElement('style');",
+    `  style.dataset.plugin = ${JSON.stringify(ownerId)};`,
+    `  style.dataset.pluginCss = ${JSON.stringify(tagId)};`,
+    `  style.textContent = ${cssLiteral};`,
+    "  document.head.appendChild(style);",
+    "}",
+  ].join("\n");
+  const stylesheets = `{ ${JSON.stringify(stylesheetPath)}: { text: (context) => ${cssLiteral} } }`;
+  return { injection, stylesheets };
+}
+
+function packageName(packageDir: string): string {
+  const manifest = JSON.parse(readFileSync(resolve(packageDir, "package.json"), "utf8")) as {
+    name?: string;
+  };
+  if (typeof manifest.name !== "string" || manifest.name.length === 0) {
+    throw new Error("tsdown: package.json is missing name");
+  }
+  return manifest.name;
+}
 
 /**
  * Browser client bundle.
  *
- * A component imports its CSS Module directly, as
- * `packages/client/ui-settings-general/src/client/GeneralSection.tsx` does.
- * The renderer installs styles from the ModuleLoader `meta.stylesheets`
- * registration emitted by `clientBundle` in
- * `packages/client/tsdown.client.ts`. That helper is not a published package,
- * so this config only copies its banner, footer, and `meta.stylesheets` shape
- * around the CSS tsdown already compiled.
+ * tsdown compiles the CSS Module into a class map. The host still has to
+ * receive the compiled text: `clientStyleInstall` emits the factory-time
+ * `<style data-plugin>` tag `0.2.2-rc.5` claims, and the `meta().stylesheets`
+ * record `0.2.3-alpha` DocumentStyles installs.
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/tsdown.client.ts
+ * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.3-alpha.2/packages/client/tsdown.client.ts
  */
 export default defineConfig({
   entry: { client: "src/client/index.tsx" },
@@ -52,8 +106,8 @@ export default defineConfig({
     return {
       ...options,
       entryFileNames: "client.js",
-      intro: "var module = { exports: {} }; var exports = module.exports;",
-      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`,
+      intro: `var module = { exports: {} }; var exports = module.exports;\n${INJECT_TOKEN}`,
+      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(pluginId)}, factory: (require) => {`,
       footer: `return module.exports; }, meta: () => ({ stylesheets: "${STYLE_TOKEN}" }) });`,
     };
   },
@@ -78,14 +132,17 @@ function clientStylesheetPlugin(packageDir: string): ClientStylesheetPlugin {
         typeof asset.source === "string"
           ? asset.source
           : Buffer.from(asset.source).toString("utf8");
+      const installed = clientStyleInstall(pluginId, stylePath, css);
       const jsPath = resolve(packageDir, "dist/client.js");
       const js = await readFile(jsPath, "utf8");
       const placeholder = new RegExp(`["']${STYLE_TOKEN}["']`);
-      if (!placeholder.test(js)) {
+      if (!placeholder.test(js) || !js.includes(INJECT_TOKEN)) {
         throw new Error("tsdown: client bundle is missing its stylesheet placeholder");
       }
-      const descriptor = `{ ${JSON.stringify(stylePath)}: { text: (context) => ${JSON.stringify(css)} } }`;
-      await writeFile(jsPath, js.replace(placeholder, descriptor));
+      await writeFile(
+        jsPath,
+        js.replace(INJECT_TOKEN, installed.injection).replace(placeholder, installed.stylesheets),
+      );
       await rm(resolve(packageDir, "dist", asset.fileName));
     },
   };
