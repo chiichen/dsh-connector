@@ -8,6 +8,8 @@
     "enable": "Enable",
     "save": "Save",
     "saved": "Saved.",
+    "saveFailed": "The connector settings could not be saved.",
+    "secretSaved": "Saved",
     "unavailable": "Connector settings are unavailable because this host did not provide a configuration form.",
     "defaultOption": "Connector default",
     "platformList": "Connectors",

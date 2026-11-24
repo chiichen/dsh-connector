@@ -1,4 +1,6 @@
 import {
+  useEffect,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -11,6 +13,7 @@ import { PLATFORM_BY_ID, PLATFORM_CATALOG, fieldIsVisible, textOf } from "../pla
 import type { PlatformField, PlatformRecord, PlatformsConfig } from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
+import { samePlatforms, secretWasRedacted } from "./persist";
 import css from "./panel.module.css";
 
 type SettingsLocale = "en" | "zh";
@@ -20,6 +23,8 @@ interface ChromeCopy {
   readonly enable: string;
   readonly save: string;
   readonly saved: string;
+  readonly saveFailed: string;
+  readonly secretSaved: string;
   readonly unavailable: string;
   readonly defaultOption: string;
   readonly platformList: string;
@@ -86,6 +91,7 @@ function FieldControl(props: {
   const label = textOf(field.label, locale);
   const detail = textOf(field.description, locale);
   const requirement = requirementText(field, locale);
+  const secretStored = field.kind === "secret" && secretWasRedacted(record, field.key);
 
   if (field.kind === "boolean") {
     const checked = readOwn(record, field.key) === true;
@@ -170,6 +176,7 @@ function FieldControl(props: {
         className={css.control}
         type={field.kind === "secret" ? "password" : "text"}
         value={stringValue(record, field.key)}
+        placeholder={secretStored ? CHROME[locale].secretSaved : undefined}
         autoComplete="off"
         spellCheck={false}
         onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -184,6 +191,11 @@ function FieldControl(props: {
       <span className={css.fieldLabel}>
         <span>{label}</span>
         {requirement === undefined ? null : <span className={css.requirement}>{requirement}</span>}
+        {secretStored ? (
+          <span className={css.requirement} data-secret-saved="true">
+            {CHROME[locale].secretSaved}
+          </span>
+        ) : null}
       </span>
       {control}
       <span className={css.hint}>{detail}</span>
@@ -195,6 +207,29 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
   const locale = props.locale ?? "en";
   const chrome = CHROME[locale];
   const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(props.platforms));
+  const draftRef = useRef(draft);
+  const hydratedPlatforms = useRef(props.platforms);
+  draftRef.current = draft;
+  useEffect(() => {
+    const current = draftRef.current;
+    const baseline = createSettingsDraft(hydratedPlatforms.current);
+    const untouched = samePlatforms(current.platforms, baseline.platforms);
+    const sourceEmpty = Object.keys(baseline.platforms).length === 0;
+    const incoming = props.platforms;
+    hydratedPlatforms.current = incoming;
+    if (!untouched && !sourceEmpty) return;
+    const next = createSettingsDraft(incoming);
+    const selectedId =
+      current.selectedId !== baseline.selectedId ? current.selectedId : next.selectedId;
+    if (
+      selectedId === current.selectedId &&
+      samePlatforms(current.platforms, next.platforms) &&
+      current.status === undefined
+    ) {
+      return;
+    }
+    setDraft({ selectedId, platforms: next.platforms });
+  }, [props.platforms]);
   const definition = PLATFORM_BY_ID[draft.selectedId];
   const record = draft.platforms[draft.selectedId];
   const enabled = record?.enabled === true;

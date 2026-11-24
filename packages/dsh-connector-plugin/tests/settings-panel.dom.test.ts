@@ -204,8 +204,9 @@ describe("connector settings interaction", () => {
     const configForm: ConfigFormHandle = {
       getSnapshot: () => snapshot,
       subscribe: () => () => {},
-      set: (field, value) => {
-        writes.push({ field, value });
+      set: () => true,
+      mutate: (ops) => {
+        writes.push(ops);
         return true;
       },
     };
@@ -232,10 +233,11 @@ describe("connector settings interaction", () => {
         ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
     expect(writes).toEqual([
-      {
-        field: "platforms",
-        value: { feishu: { enabled: true, appId: "cli_from_ui", appSecret: "ui-secret" } },
-      },
+      [
+        { op: "set", path: ["platforms", "feishu", "enabled"], value: true },
+        { op: "set", path: ["platforms", "feishu", "appId"], value: "cli_from_ui" },
+        { op: "set", path: ["platforms", "feishu", "appSecret"], value: "ui-secret" },
+      ],
     ]);
 
     const locked = entry.container.querySelector("fieldset");
@@ -258,5 +260,78 @@ describe("connector settings interaction", () => {
     });
     expect(blocked.container.querySelector('[role="alert"]')).toBeNull();
     await unmount(blocked);
+  });
+
+  it("shows a saved WeCom long connection again after the settings section reopens", async () => {
+    const stored = {
+      wecom: {
+        enabled: true,
+        mode: "aibotWs",
+        aibotWs: { botId: "bot-saved" },
+      },
+    };
+    const reopened = await render(
+      createElement(ConnectorSettingsPanel, {
+        platforms: stored,
+        onSave: () => {},
+      }),
+    );
+    const mode = reopened.container.querySelector('select[name="mode"]');
+    const botId = reopened.container.querySelector('input[name="aibotWs.botId"]');
+    const secret = reopened.container.querySelector('input[name="aibotWs.secret"]');
+    const savedSecret = reopened.container.querySelector("[data-secret-saved]");
+    if (
+      !(mode instanceof HTMLSelectElement) ||
+      !(botId instanceof HTMLInputElement) ||
+      !(secret instanceof HTMLInputElement)
+    ) {
+      throw new Error("WeCom long-connection fields were not restored");
+    }
+    expect(mode.value).toBe("aibotWs");
+    expect(botId.value).toBe("bot-saved");
+    expect(secret.value).toBe("");
+    expect(savedSecret?.textContent).toContain("Saved");
+    await unmount(reopened);
+
+    let snapshot: { value: { platforms: PlatformsConfig }; writable: boolean; revision: number } = {
+      value: { platforms: {} },
+      writable: true,
+      revision: 1,
+    };
+    let renderEntry: (() => void) | undefined;
+    const configForm: ConfigFormHandle = {
+      getSnapshot: () => snapshot,
+      subscribe: (listener) => {
+        renderEntry = listener;
+        return () => {
+          renderEntry = undefined;
+        };
+      },
+      set: () => true,
+      mutate: () => true,
+    };
+    const entry = await render(
+      createElement(ConnectorSettingsEntry, { localeTag: "en", form: configForm }),
+    );
+    expect(entry.container.querySelector('select[name="mode"]')).toBeNull();
+    snapshot = { value: { platforms: stored }, writable: true, revision: 2 };
+    await act(async () => {
+      renderEntry?.();
+    });
+    const restoredMode = entry.container.querySelector('select[name="mode"]');
+    const restoredBot = entry.container.querySelector('input[name="aibotWs.botId"]');
+    const restoredSecret = entry.container.querySelector('input[name="aibotWs.secret"]');
+    if (
+      !(restoredMode instanceof HTMLSelectElement) ||
+      !(restoredBot instanceof HTMLInputElement) ||
+      !(restoredSecret instanceof HTMLInputElement)
+    ) {
+      throw new Error("the settings form did not read the saved WeCom section");
+    }
+    expect(restoredMode.value).toBe("aibotWs");
+    expect(restoredBot.value).toBe("bot-saved");
+    expect(restoredSecret.value).toBe("");
+    expect(entry.container.querySelector("[data-secret-saved]")?.textContent).toContain("Saved");
+    await unmount(entry);
   });
 });

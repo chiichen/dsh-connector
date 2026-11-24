@@ -4,6 +4,7 @@ import zhLocale from "../../locale/zh.json";
 import { CONNECTOR_PLUGIN_NAME } from "../constants";
 import { isRecord } from "../platforms/records";
 import type { PlatformsConfig } from "../platforms/types";
+import { platformSettingsOps, type SettingsPathOp } from "./persist";
 import { ConnectorSettingsPanel, normalizeLocale } from "./panel";
 import css from "./panel.module.css";
 
@@ -34,6 +35,7 @@ export interface ConfigFormHandle {
   getSnapshot(): ConfigFormSnapshot;
   subscribe(listener: () => void): () => void;
   set(field: string, value: unknown): Promise<boolean> | boolean;
+  mutate(ops: readonly SettingsPathOp[]): Promise<boolean> | boolean;
 }
 
 export interface ConnectorSettingsHost {
@@ -135,7 +137,13 @@ function ConnectorSettingsForm(props: {
       locale={props.locale}
       disabled={snapshot.writable === false}
       onSave={async (platforms) => {
-        await props.form.set("platforms", platforms);
+        const ops = platformSettingsOps(platformsFromConfigValue(snapshot.value), platforms);
+        if (ops.length === 0) return;
+        const accepted = await props.form.mutate(ops);
+        if (!accepted) {
+          const chrome = props.locale === "zh" ? zhLocale.settings : enLocale.settings;
+          throw new Error(chrome.saveFailed);
+        }
       }}
     />
   );

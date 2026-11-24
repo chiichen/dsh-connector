@@ -37,6 +37,7 @@ import {
 import { ConnectorManager } from "./manager";
 import { createConnectorsFromPlatformConfig } from "./platforms/instantiate";
 import { mergePlatformConfigs } from "./platforms/merge";
+import { readPlatformsConfig } from "./platforms/read";
 import { platformSettingsSchema } from "./platforms/schema";
 import type { PlatformsConfig } from "./platforms/types";
 import { DshSessionDriver } from "./session-driver";
@@ -85,7 +86,9 @@ export const Config: Schema<ConnectorPluginConfig> = Schema.object({
     ttlMs: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_TTL_MS),
     maxEntries: Schema.number().step(1).min(1).default(DEFAULT_DEDUPLICATION_MAX_ENTRIES),
   }),
-  platforms: platformSettingsSchema,
+  // dsh settings writes only persist volatile fields. A non-volatile `platforms`
+  // value is refused, so reopening Connectors reads an empty section.
+  platforms: platformSettingsSchema.volatile(),
 }) as unknown as Schema<ConnectorPluginConfig>;
 
 export interface ConnectorPluginRuntime {
@@ -169,7 +172,7 @@ export async function mountConnectorPlugin(
 
   const manager = new ConnectorManager({
     connectors: [
-      ...createConnectorsFromPlatformConfig(config.platforms, logger),
+      ...createConnectorsFromPlatformConfig(readPlatformsConfig(config.platforms), logger),
       ...(config.connectors ?? []),
     ],
     contextStore,
@@ -288,7 +291,10 @@ export function createConnectorPlugin(defaultConfig: ConnectorPluginConfig): Con
     name,
     inject,
     apply: (ctx, overrideConfig) => {
-      const platforms = mergePlatformConfigs(defaultConfig.platforms, overrideConfig?.platforms);
+      const platforms = mergePlatformConfigs(
+        readPlatformsConfig(defaultConfig.platforms),
+        readPlatformsConfig(overrideConfig?.platforms),
+      );
       return apply(ctx, {
         ...defaultConfig,
         ...overrideConfig,
