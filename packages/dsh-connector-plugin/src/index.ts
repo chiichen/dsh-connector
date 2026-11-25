@@ -75,7 +75,16 @@ export interface ConnectorPluginConfig {
 
 export const Config: Schema<ConnectorPluginConfig> = Schema.object({
   defaultSessionCwd: Schema.string(),
-  workspaceId: Schema.string(),
+  // Shared by every connector. Settings persists only volatile fields.
+  // The id is a row from `ctx.workspaceRegistry.list()`, and receive passes it
+  // to `sessionController.create({ workspaceId })`.
+  // https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/workspace/workspace/src/index.ts
+  // https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/api/session-controller/src/commands.ts
+  workspaceId: Schema.string()
+    .description(
+      "Workspace id from the current profile where an inbound receive starts a Session. Shared by every connector.",
+    )
+    .volatile(),
   toolNamePrefix: Schema.string().default(DEFAULT_TOOL_NAME_PREFIX),
   webhook: Schema.object({
     enabled: Schema.boolean().default(true),

@@ -8,6 +8,12 @@ export const CONNECTOR_PLUGIN_NAME = "dsh-connector-plugin" as const;
 /** Config field edited by the Connectors settings section. */
 export const SETTINGS_PLATFORMS_KEY = "platforms" as const;
 
+/**
+ * Plugin config field naming the workspace where an inbound receive starts a Session.
+ * Every connector shares this one id.
+ */
+export const SETTINGS_WORKSPACE_ID_KEY = "workspaceId" as const;
+
 export const LOG_INBOUND_RECEIVED = "Received inbound connector message" as const;
 export const LOG_INBOUND_FAILED = "Failed handling inbound connector message" as const;
 

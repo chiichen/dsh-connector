@@ -1,6 +1,14 @@
 /* Installed by the client bundle's meta.stylesheets entry, which
  * @deepseek-ai/dsh-client-ui-renderer reads before painting the page. */
 
+.shared {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
