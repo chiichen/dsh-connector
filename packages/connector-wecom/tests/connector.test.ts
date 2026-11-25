@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ConnectorTargetRequiredError,
   ConnectorValidationError,
   createConnectorContext,
   createDefaultContextIdGenerator,
@@ -178,12 +179,12 @@ describe("Stage 4: WeComConnector end-to-end closed loops & streaming seam", () 
     });
     expect(whRes.status).toBe(200);
     expect(inboundContexts).toHaveLength(1);
-    expect(inboundContexts[0]?.contextId).toBe("app:p2p:chen");
+    expect(inboundContexts[0]?.contextId).toBe("msg:5001");
 
-    // Outbound reply using the exact inbound ConnectorContext without explicit target!
+    // The message context id is not a user id; the reply names the recipient.
     const sendRes = await connector
       .getSender()
-      .send(inboundContexts[0]!, wecomSendSchema.parse({ text: "所有节点健康" }));
+      .send(inboundContexts[0]!, wecomSendSchema.parse({ text: "所有节点健康", toUser: "chen" }));
     expect(sendRes.channel).toBe("app");
     expect(sendRes.target).toBe("chen");
     expect(sendRes.messageId).toBe("app_out_1");
@@ -246,7 +247,7 @@ describe("Stage 4: WeComConnector end-to-end closed loops & streaming seam", () 
       ),
     });
 
-    expect(httpBoundCtx?.contextId).toBe("aibot:p2p:alice");
+    expect(httpBoundCtx?.contextId).toBe("msg:m_http_1");
     const httpReply = await httpBot
       .getSender()
       .send(httpBoundCtx!, wecomSendSchema.parse({ text: "**你好 Alice**" }));
@@ -255,10 +256,10 @@ describe("Stage 4: WeComConnector end-to-end closed loops & streaming seam", () 
       "https://qyapi.weixin.qq.com/cgi-bin/aibot/response?code=once_token",
     ]);
 
-    // Second send after single-use response_url is consumed falls back to wsClient, which is not configured on httpBot
+    // After the single-use response_url is consumed, this message context has no chat target.
     await expect(
       httpBot.getSender().send(httpBoundCtx!, wecomSendSchema.parse({ text: "second" })),
-    ).rejects.toThrow(/not connected/);
+    ).rejects.toThrow(ConnectorTargetRequiredError);
     await expect(
       httpBot
         .getSender()
@@ -314,11 +315,11 @@ describe("Stage 4: WeComConnector end-to-end closed loops & streaming seam", () 
     await new Promise((r) => setTimeout(r, 10));
 
     expect(wsReceived).toHaveLength(1);
-    expect(wsReceived[0]?.ctx.contextId).toBe("aibot:group:grp_dev");
+    expect(wsReceived[0]?.ctx.contextId).toBe("msg:m_ws_e2e");
 
     const wsReply = await wsBot
       .getSender()
-      .send(wsReceived[0]!.ctx, wecomSendSchema.parse({ text: "已完成 100%" }));
+      .send(wsReceived[0]!.ctx, wecomSendSchema.parse({ text: "已完成 100%", chatId: "grp_dev" }));
     expect(wsReply.channel).toBe("aibot");
     expect(activeWs!.sent.at(-1)).toMatchObject({
       cmd: "aibot_send_msg",
@@ -326,7 +327,7 @@ describe("Stage 4: WeComConnector end-to-end closed loops & streaming seam", () 
         chatid: "grp_dev",
         chat_type: 2,
         msgtype: "markdown",
-        markdown: { content: "已完成 100%" },
+        markdown: { content: "[#ctx:msg:m_ws_e2e]\n已完成 100%" },
       },
     });
 

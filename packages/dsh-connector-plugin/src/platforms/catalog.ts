@@ -117,8 +117,8 @@ const FEISHU_MODE_WEBHOOK = "webhook" as const;
 const FEISHU_MODES = [FEISHU_MODE_WEBHOOK, "websocket", "both"] as const;
 const FEISHU_MENTION_REQUIRED = "mention-required" as const;
 const FEISHU_MENTION_POLICIES = [FEISHU_MENTION_REQUIRED, "all"] as const;
-const CONTEXT_MARKER_AUTO = "auto" as const;
-const CONTEXT_MARKERS = [CONTEXT_MARKER_AUTO, "always", "never"] as const;
+const CONTEXT_MARKER_ALWAYS = "always" as const;
+const CONTEXT_MARKERS = ["auto", CONTEXT_MARKER_ALWAYS, "never"] as const;
 const TEXT_FORMAT = "text" as const;
 const TEXT_FORMATS = [TEXT_FORMAT, "markdown"] as const;
 
@@ -279,8 +279,8 @@ const feishu: PlatformDefinition = {
       "resolveReplyContextFromParent",
       "Resolve reply context",
       "解析被回复消息的上下文",
-      "Look up the parent message when a user replies.",
-      "用户回复消息时，查找被回复消息中的上下文。",
+      "Accepted for existing configs. A reply reuses a session only when the event text already contains a context id.",
+      "保留给已有配置。只有事件正文里已经带有 Context ID 时，回复才会回到原会话。",
     ),
     choice(
       "contextMarker",
@@ -289,7 +289,7 @@ const feishu: PlatformDefinition = {
       "When to attach an outbound context marker.",
       "何时附带出站上下文标记。",
       CONTEXT_MARKERS,
-      { defaultChoice: CONTEXT_MARKER_AUTO },
+      { defaultChoice: CONTEXT_MARKER_ALWAYS },
     ),
     choice(
       "defaultOutboundFormat",

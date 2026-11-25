@@ -331,7 +331,7 @@ describe("Stage 4: Edge cases, resilience, and full branch coverage", () => {
       });
       expect(groupMention).toMatchObject({
         kind: "message",
-        contextId: "channel:G0123456789:1717171717.000300",
+        contextId: "msg:G0123456789:1717171717.000300",
         params: {
           text: "deploy staging",
           channelType: "group",
@@ -351,7 +351,7 @@ describe("Stage 4: Edge cases, resilience, and full branch coverage", () => {
       });
       expect(dmPrefixMention).toMatchObject({
         kind: "message",
-        contextId: "dm:D0123456789:1717171717.000301",
+        contextId: "msg:D0123456789:1717171717.000301",
       });
 
       // threadReplyPolicy: mention-only vs participating
@@ -394,7 +394,7 @@ describe("Stage 4: Edge cases, resilience, and full branch coverage", () => {
         }),
       ).toMatchObject({
         kind: "message",
-        contextId: "channel:C0123456789:1717171717.000100",
+        contextId: "msg:C0123456789:1717171717.000400",
       });
 
       // Unsupported event type & empty text

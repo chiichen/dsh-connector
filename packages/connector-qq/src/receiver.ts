@@ -1,6 +1,7 @@
 import {
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
   type ConnectorInboundPrompt,
   type ConnectorLogger,
@@ -8,7 +9,6 @@ import {
   type ConnectorWebhookRequest,
   type ConnectorWebhookResponse,
 } from "@dsh-connector/core";
-import { formatQqContextId } from "./addressing";
 import {
   HTTP_STATUS_BAD_REQUEST,
   HTTP_STATUS_METHOD_NOT_ALLOWED,
@@ -455,14 +455,16 @@ export class QqEventReceiver<TName extends string = string> {
 
     const rawContent = typeof data.content === "string" ? data.content : "";
     const strippedContent = stripBotMentions(rawContent, this.botIds);
-    const { contextId: bodyMarkerId, cleanedContent } = extractContextMarker(strippedContent);
+    const { cleanedContent } = extractContextMarker(strippedContent);
 
     const rawQuoted = extractQuotedTextFromElements(data.msg_elements);
     const quotedExtraction = rawQuoted !== undefined ? extractContextMarker(rawQuoted) : undefined;
 
-    // Context priority: quoted parent marker > current message marker > deterministic business target ID
-    const resolvedContextId =
-      quotedExtraction?.contextId ?? bodyMarkerId ?? formatQqContextId(resolvedTarget);
+    const resolvedContextId = resolveInboundContextId({
+      messageId,
+      body: strippedContent,
+      quotedTexts: [rawQuoted],
+    });
     const context = createConnectorContext(this.connectorName, resolvedContextId);
 
     const extMap = extractSceneExtMap(data.message_scene?.ext);

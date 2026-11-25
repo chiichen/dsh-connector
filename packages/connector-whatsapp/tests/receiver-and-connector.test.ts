@@ -301,7 +301,7 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
     // 5. Unauthorized sender not in allowlist -> ignored
     // 6. Reaction / non-text message -> ignored
     // 7. Standard inbound 1:1 text message -> routed to `direct:16505551234`
-    // 8. Swipe-reply (`context.id = wamid.bot.outbound.1`) -> routed back to `outboundUuidCtx.contextId`!
+    // 8. Swipe-reply carries only `context.id`. That id is not fetched, so the reply is a new message context.
     // 9. Message with explicit context marker (`[#ctx:custom-ticket-42]`) -> routed to `custom-ticket-42` and marker stripped
     // 10. Group interactive button reply -> routed to `group:Y2FwaV9ncm91cDox`
     const markedBody = prependContextMarker("Approve release", "custom-ticket-42", "bracket");
@@ -452,7 +452,7 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
     });
 
     // Check message 1: standard 1:1 text
-    expect(received[0]?.context.contextId).toBe("direct:16505551234");
+    expect(received[0]?.context.contextId).toBe("msg:wamid.user.text.1");
     expect(received[0]?.payload.text).toBe("Hello Cloud API!");
     expect(received[0]?.payload.senderName).toBe("Sheena Nelson");
     expect(received[0]?.meta).toEqual({
@@ -461,8 +461,8 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
       receivedAt: 1739321010 * 1000,
     });
 
-    // Check message 2: contextual swipe-reply to outbound UUID notification!
-    expect(received[1]?.context.contextId).toBe(outboundUuidCtx.contextId);
+    // A swipe-reply only carries the quoted message id, so this message opens its own context.
+    expect(received[1]?.context.contextId).toBe("msg:wamid.user.reply.1");
     expect(received[1]?.payload.replyToMessageId).toBe("wamid.bot.outbound.1");
     expect(received[1]?.payload.replyToFrom).toBe(DISPLAY_PHONE);
     expect(received[1]?.payload.text).toBe("Please rollback staging");
@@ -473,7 +473,7 @@ describe("WhatsAppConnector & Cloud API Webhook Receiver", () => {
     expect(received[2]?.payload.text).toBe("Approve release");
 
     // Check message 4: group interactive reply
-    expect(received[3]?.context.contextId).toBe("group:Y2FwaV9ncm91cDox");
+    expect(received[3]?.context.contextId).toBe("msg:wamid.group.interactive.1");
     expect(received[3]?.payload.recipientType).toBe("group");
     expect(received[3]?.payload.groupId).toBe("Y2FwaV9ncm91cDox");
     expect(received[3]?.payload.text).toBe("Run diagnostics");

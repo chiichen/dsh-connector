@@ -113,17 +113,19 @@ describe("TelegramConnector & createTelegramConnector", () => {
     });
 
     expect(webhookRes.status).toBe(200);
-    expect(capturedContextId).toBe("group:-100888:33");
+    expect(capturedContextId).toBe("msg:-100888:400");
 
-    // Outbound reply using the captured contextId routes back to chat -100888 topic 33 automatically
+    // The message context id is not a chat id; the reply names the chat and topic explicitly.
     const sendResult = await sender.send(createConnectorContext(connector, capturedContextId), {
       text: "All nodes healthy.",
+      chatId: -100888,
+      messageThreadId: 33,
     });
     expect(sendResult.messageId).toBe(901);
     expect(sentRequests[0]).toMatchObject({
       chat_id: -100888,
       message_thread_id: 33,
-      text: "All nodes healthy.",
+      text: "<!-- dsh-ctx:msg:-100888:400 -->\nAll nodes healthy.",
     });
 
     await connector.stop();

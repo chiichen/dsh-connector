@@ -58,7 +58,7 @@ export class DiscordSender<TName extends string = "discord"> implements Connecto
     this.#connectorName = options.connectorName;
     this.#api = options.api;
     this.#maxMessageLength = options.maxMessageLength ?? DISCORD_MAX_MESSAGE_LENGTH;
-    this.#includeContextMarker = options.includeContextMarker ?? false;
+    this.#includeContextMarker = options.includeContextMarker ?? true;
     this.#contextMarkerStyle = options.contextMarkerStyle ?? "bracket";
     this.description =
       options.description ??

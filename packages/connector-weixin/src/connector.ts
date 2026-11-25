@@ -5,6 +5,7 @@ import {
   createConnectorContext,
   extractContextMarker,
   prependContextMarker,
+  resolveInboundContextId,
   type Connector,
   type ConnectorContext,
   type ConnectorLogger,
@@ -42,7 +43,7 @@ import {
   WEIXIN_ENCRYPT_TYPE_AES,
   WEIXIN_WEBHOOK_ACK_BODY,
 } from "./constants";
-import { formatWeixinP2pContextId, resolveWeixinSendTarget } from "./context-target";
+import { resolveWeixinSendTarget } from "./context-target";
 import {
   decodeEncodingAesKey,
   decryptWeixinCiphertext,
@@ -274,7 +275,7 @@ export class WeixinConnector<
     this.description = options.description ?? DEFAULT_WEIXIN_DESCRIPTION;
 
     this.maxMessageChars = options.maxMessageChars ?? DEFAULT_MAX_MESSAGE_CHARS;
-    this.contextMarkerStyle = options.contextMarkerStyle ?? "none";
+    this.contextMarkerStyle = options.contextMarkerStyle ?? "bracket";
     this.streamingAdapter = options.streamingAdapter ?? options.streaming?.adapter;
 
     const dedupSize = options.deduplicationMaxEntries ?? DEFAULT_DEDUP_CACHE_SIZE;
@@ -731,13 +732,16 @@ export class WeixinConnector<
       return;
     }
 
-    const { contextId: markerContextId, cleanedContent } = extractContextMarker(rawContent);
+    const { cleanedContent } = extractContextMarker(rawContent);
     const finalText = cleanedContent.trim();
     if (finalText.length === 0) {
       return;
     }
 
-    const resolvedContextId = markerContextId ?? formatWeixinP2pContextId(senderId, this.name);
+    const resolvedContextId = resolveInboundContextId({
+      messageId,
+      body: rawContent,
+    });
     const context = createConnectorContext(this, resolvedContextId);
 
     const msgDataId = fields["MsgDataId"]?.trim();
@@ -874,7 +878,7 @@ export class WeixinConnector<
     }
 
     const quote = extractIlinkQuote(items);
-    const { contextId: directMarkerId, cleanedContent } = extractContextMarker(extracted.text);
+    const { cleanedContent } = extractContextMarker(extracted.text);
     const quoteMarker =
       quote.quotedText !== undefined ? extractContextMarker(quote.quotedText) : undefined;
 
@@ -883,8 +887,11 @@ export class WeixinConnector<
       return;
     }
 
-    const resolvedContextId =
-      directMarkerId ?? quoteMarker?.contextId ?? formatWeixinP2pContextId(senderId, this.name);
+    const resolvedContextId = resolveInboundContextId({
+      messageId: rawId,
+      body: extracted.text,
+      quotedTexts: [quote.quotedText],
+    });
     const context = createConnectorContext(this, resolvedContextId);
 
     const createTimeNum = parseNumericOrder(msg.create_time_ms);

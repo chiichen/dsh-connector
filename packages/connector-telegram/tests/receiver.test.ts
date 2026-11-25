@@ -162,7 +162,7 @@ describe("TelegramReceiver (Webhook & getUpdates Long Polling)", () => {
     });
     expect(res200.status).toBe(HTTP_STATUS_OK);
     expect(received).toHaveLength(1);
-    expect(received[0]?.contextId).toBe("p2p:555");
+    expect(received[0]?.contextId).toBe("msg:555:88");
     expect(received[0]?.payload.text).toBe("Hello via webhook!");
   });
 
@@ -344,7 +344,7 @@ describe("TelegramReceiver (Webhook & getUpdates Long Polling)", () => {
     expect(receiver.getCurrentOffset()).toBe(203);
     expect(sleepDelays).toEqual([50]);
     expect(received).toHaveLength(1);
-    expect(received[0]?.contextId).toBe("group:-1001:15");
+    expect(received[0]?.contextId).toBe("msg:-1001:2");
     expect(received[0]?.payload.text).toBe("deploy staging");
   });
 });

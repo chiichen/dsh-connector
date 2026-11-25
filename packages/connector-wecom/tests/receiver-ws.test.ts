@@ -273,7 +273,7 @@ describe("Stage 3: WeComAibotWsClient long connection & Receiver integration", (
 
     expect(received).toHaveLength(1);
     expect(eventsSeen).toEqual(["aibot_event_callback"]);
-    expect(received[0]?.context.contextId).toBe("aibot:p2p:wangwu");
+    expect(received[0]?.context.contextId).toBe("msg:ws_msg_77");
     expect(received[0]?.params).toMatchObject({
       source: "aibot-ws",
       messageId: "ws_msg_77",

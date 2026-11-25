@@ -91,7 +91,10 @@ export interface FeishuConnectorOptions<
   readonly mode?: FeishuReceiveMode;
   /** Fetch `GET /open-apis/bot/v3/info` during `start()` if `botOpenId` is unset (default `false`). */
   readonly resolveBotInfoOnStart?: boolean;
-  /** Look up replied-to `parent_id` messages for `[#ctx:...]` markers (default `true`). */
+  /**
+   * Accepted for existing configs. A reply reuses a session only when the event
+   * text already contains a context id. `parent_id` is not fetched.
+   */
   readonly resolveReplyContextFromParent?: boolean;
 
   /** Outbound context marker encoding policy: `"auto"` (default), `"always"`, or `"never"`. */

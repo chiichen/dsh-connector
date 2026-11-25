@@ -9,6 +9,7 @@
 import {
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorReceiverContext,
   type ConnectorWebhookRequest,
   type ConnectorWebhookResponse,
@@ -26,12 +27,7 @@ import {
   HTTP_STATUS_OK,
   HTTP_STATUS_UNAUTHORIZED,
 } from "./constants";
-import {
-  formatDiscordChannelContextId,
-  formatDiscordDmContextId,
-  formatDiscordThreadContextId,
-  isDiscordSnowflake,
-} from "./context-target";
+import { isDiscordSnowflake } from "./context-target";
 import { verifyDiscordInteractionHeaders } from "./signature";
 import type {
   DiscordInteraction,
@@ -263,18 +259,14 @@ export async function handleDiscordInteractionWebhook<TName extends string = "di
     : undefined;
   const promptMarker = extractContextMarker(rawPromptText);
 
-  const extractedContextId = msgMarker?.contextId ?? promptMarker.contextId;
   const cleanedText = promptMarker.cleanedContent.trim();
-
-  const defaultContextId = isDirectMessage
-    ? formatDiscordDmContextId(channelId)
-    : isThread
-      ? formatDiscordThreadContextId(channelId, parentChannelId)
-      : formatDiscordChannelContextId(channelId);
-
   const context = createConnectorContext(
     options.connectorName,
-    extractedContextId ?? defaultContextId,
+    resolveInboundContextId({
+      messageId: interaction.id,
+      body: rawPromptText,
+      quotedTexts: [interaction.message?.content],
+    }),
   );
 
   const authorName =

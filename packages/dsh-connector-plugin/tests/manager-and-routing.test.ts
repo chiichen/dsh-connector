@@ -221,6 +221,53 @@ describe("ConnectorManager & DshSessionDriver routing closed-loop", () => {
     }
   });
 
+  it("opens a new session per message context string and reuses that string only while its session is alive", async () => {
+    const host = await TestDshHost.start({ useSessionController: true });
+    try {
+      const store = new DefaultContextSessionStore();
+      const sessionDriver = new DshSessionDriver(host.ctx, { defaultCwd: "/tmp/message-contexts" });
+      const alerts = new MockAlertIngestConnector();
+      const manager = new ConnectorManager({
+        connectors: [alerts],
+        contextStore: store,
+        sessionDriver,
+      });
+      await manager.startAll();
+
+      const first = await alerts.simulateAlert({
+        severity: "warning",
+        fingerprint: "msg:111",
+        message: "first send",
+      });
+      const sameMessage = await alerts.simulateAlert({
+        severity: "warning",
+        fingerprint: "msg:111",
+        message: "same context string",
+      });
+      const otherMessage = await alerts.simulateAlert({
+        severity: "warning",
+        fingerprint: "msg:222",
+        message: "different message",
+      });
+
+      expect(sameMessage.sessionId).toBe(first.sessionId);
+      expect(otherMessage.sessionId).not.toBe(first.sessionId);
+
+      host.deleteSessionInUi(first.sessionId);
+      const reopened = await alerts.simulateAlert({
+        severity: "warning",
+        fingerprint: "msg:111",
+        message: "same string after the session is gone",
+      });
+      expect(reopened.sessionId).not.toBe(first.sessionId);
+      expect(reopened.sessionId).not.toBe(otherMessage.sessionId);
+
+      await manager.stopAll();
+    } finally {
+      await host.stop();
+    }
+  });
+
   it("scopes idempotency keys per context hash without delimiter collisions and re-delivers when a deduplicated session was deleted", async () => {
     const host = await TestDshHost.start({ useSessionController: true });
     try {

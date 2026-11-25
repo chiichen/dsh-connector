@@ -101,7 +101,7 @@ export function createFeishuSender<const TName extends string>(
   options: CreateFeishuSenderOptions<TName>,
 ): ConnectorSender<typeof feishuSendSchema, FeishuSendResult, TName> {
   const defaultFormat = options.defaultOutboundFormat ?? "text";
-  const markerPolicy = options.contextMarker ?? "auto";
+  const markerPolicy = options.contextMarker ?? "always";
 
   return {
     description: options.description ?? DEFAULT_FEISHU_SEND_DESCRIPTION,

@@ -68,7 +68,7 @@ describe("WhatsApp Cloud API outbound Sender", () => {
       to: "+16505551234",
       type: "text",
       text: {
-        body: "Hello https://example.com",
+        body: `[#ctx:${uuidCtx.contextId}]\nHello https://example.com`,
         preview_url: true,
       },
     });
@@ -89,7 +89,7 @@ describe("WhatsApp Cloud API outbound Sender", () => {
       to: "16505559999",
       type: "text",
       context: { message_id: "wamid.user.inbound.1" },
-      text: { body: "Contextual reply" },
+      text: { body: "[#ctx:direct:16505559999]\nContextual reply" },
     });
 
     const groupCtx = createConnectorContext("whatsapp", "group:Y2FwaV9ncm91cDox");

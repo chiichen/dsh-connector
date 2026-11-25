@@ -251,7 +251,7 @@ describe("Stage 3: Ed25519 webhook verification, OpCode 13, WebSocket Gateway, a
       url: "https://api.sgroup.qq.com/v2/users/USER_A/messages",
       body: {
         msg_type: 0,
-        content: "收到！",
+        content: "[#ctx:custom-ticket-42]\n收到！",
         msg_id: "ROBOT1.0_c2c_1",
         msg_seq: 1,
       },
@@ -311,7 +311,7 @@ describe("Stage 3: Ed25519 webhook verification, OpCode 13, WebSocket Gateway, a
       },
       rawBody: groupRaw,
     });
-    expect(received[1]!.contextId).toBe("group:GRP_OPEN_77");
+    expect(received[1]!.contextId).toBe("msg:MSG_GRP_1");
     expect(received[1]!.params.text).toBe("帮我查日志");
 
     const channelRaw = new TextEncoder().encode(
@@ -339,7 +339,7 @@ describe("Stage 3: Ed25519 webhook verification, OpCode 13, WebSocket Gateway, a
       },
       rawBody: channelRaw,
     });
-    expect(received[2]!.contextId).toBe("channel:GUILD_5:CH_6");
+    expect(received[2]!.contextId).toBe("msg:MSG_CH_1");
     expect(received[2]!.params.text).toBe("部署状态");
   });
 

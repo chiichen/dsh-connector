@@ -202,7 +202,9 @@ describe("Stage 2: WeComApiClient & WeComSender outbound channels", () => {
     expect(calls[0]?.url).toContain("/cgi-bin/webhook/send?key=wh-key-123");
     expect(JSON.parse(calls[0]!.bodyText!)).toEqual({
       msgtype: "markdown_v2",
-      markdown_v2: { content: "# 标题\n告警恢复" },
+      markdown_v2: {
+        content: "[#ctx:550e8400-e29b-41d4-a716-446655440000]\n# 标题\n告警恢复",
+      },
     });
 
     // Intelligent Bot via cached HTTP response_url
@@ -220,7 +222,7 @@ describe("Stage 2: WeComApiClient & WeComSender outbound channels", () => {
     expect(wsProactiveRes.channel).toBe("aibot");
     expect(wsProactiveRes.reqId).toBe("ws_req_1");
     expect(sendProactiveMarkdown).toHaveBeenCalledWith(
-      { chatId: "chat_ws", chatType: 2, content: "WS 群主动消息" },
+      { chatId: "chat_ws", chatType: 2, content: "[#ctx:aibot:group:chat_ws]\nWS 群主动消息" },
       undefined,
     );
 
@@ -231,7 +233,7 @@ describe("Stage 2: WeComApiClient & WeComSender outbound channels", () => {
     );
     expect(wsReplyRes.reqId).toBe("cb_req_9");
     expect(respondMarkdown).toHaveBeenCalledWith(
-      { reqId: "cb_req_9", content: "WS 被动关联回复" },
+      { reqId: "cb_req_9", content: "[#ctx:aibot:group:chat_ws]\nWS 被动关联回复" },
       undefined,
     );
   });

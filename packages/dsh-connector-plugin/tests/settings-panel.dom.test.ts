@@ -255,7 +255,7 @@ describe("connector settings interaction", () => {
           path: ["platforms", "feishu", "groupMentionPolicy"],
           value: "mention-required",
         },
-        { op: "set", path: ["platforms", "feishu", "contextMarker"], value: "auto" },
+        { op: "set", path: ["platforms", "feishu", "contextMarker"], value: "always" },
         { op: "set", path: ["platforms", "feishu", "defaultOutboundFormat"], value: "text" },
       ],
     ]);

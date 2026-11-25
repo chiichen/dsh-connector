@@ -653,15 +653,15 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
 
       expect(received).toHaveLength(4);
 
-      expect(received[0]?.context.contextId).toBe("dm:300001");
+      expect(received[0]?.context.contextId).toBe("msg:800004");
       expect(received[0]?.params.text).toBe("Hello in DM!");
       expect(received[0]?.meta?.idempotencyKey).toBe("discord:msg:800004");
 
-      expect(received[1]?.context.contextId).toBe("channel:500001");
+      expect(received[1]?.context.contextId).toBe("msg:800005");
       expect(received[1]?.params.text).toBe("deploy staging please");
       expect(received[1]?.params.authorName).toBe("Alice (Dev)");
 
-      expect(received[2]?.context.contextId).toBe("thread:500001:700001");
+      expect(received[2]?.context.contextId).toBe("msg:800006");
       expect(received[2]?.params.isThread).toBe(true);
       expect(received[2]?.params.text).toBe("Follow up inside thread");
 
@@ -758,7 +758,7 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
         type: DISCORD_INTERACTION_CALLBACK_TYPES.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
       });
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("thread:500001:700001");
+      expect(received[0]?.context.contextId).toBe("msg:910002");
       expect(received[0]?.params.commandName).toBe("ask");
       expect(received[0]?.params.interactionToken).toBe("cmd_tok_123");
       expect(received[0]?.params.text).toContain("check pod logs");
@@ -786,7 +786,7 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
       );
       expect(modalRes.status).toBe(200);
       expect(received).toHaveLength(2);
-      expect(received[1]?.context.contextId).toBe("dm:300009");
+      expect(received[1]?.context.contextId).toBe("msg:910003");
       expect(received[1]?.params.customId).toBe("feedback_modal");
       expect(received[1]?.params.text).toContain("All services healthy");
     });
@@ -926,7 +926,7 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
         }),
       );
       expect(nestedCmdRes.status).toBe(200);
-      expect(received.at(-1)?.context.contextId).toBe("channel:500001");
+      expect(received.at(-1)?.context.contextId).toBe("msg:920006");
       expect(received.at(-1)?.params.text).toBe("/ops deploy env: prod dry_run");
 
       const markedMsg = prependContextMarker(
@@ -1365,7 +1365,7 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
 
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("thread:550001:770001");
+      expect(received[0]?.context.contextId).toBe("msg:810004");
 
       // Format inbound with referencedText + attachments
       const formatted = receiver.formatInbound!(
@@ -1422,8 +1422,8 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
 
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(received).toHaveLength(3);
-      expect(received[1]?.context.contextId).toBe("channel:550001");
-      expect(received[2]?.context.contextId).toBe("thread:550001:770099");
+      expect(received[1]?.context.contextId).toBe("msg:810005");
+      expect(received[2]?.context.contextId).toBe("msg:810006");
       expect(received[2]?.params.text).toContain("screenshot.png");
 
       await connector.stop();
@@ -1531,8 +1531,8 @@ describe("Stage 3: Gateway v10 state machine, MESSAGE_CREATE & Interactions Webh
         },
       );
       expect(received).toHaveLength(2);
-      expect(received[0]?.context.contextId).toBe("channel:590010");
-      expect(received[1]?.context.contextId).toBe("thread:790010");
+      expect(received[0]?.context.contextId).toBe("msg:890011");
+      expect(received[1]?.context.contextId).toBe("msg:890012");
 
       const dmPrompt = standaloneReceiver.formatInbound(
         {

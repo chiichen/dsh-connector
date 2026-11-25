@@ -314,7 +314,7 @@ describe("platform settings", () => {
       feishu: {
         mode: "webhook",
         groupMentionPolicy: "mention-required",
-        contextMarker: "auto",
+        contextMarker: "always",
         defaultOutboundFormat: "text",
       },
       slack: { deliveryMode: "queue", threadReplyPolicy: "all" },

@@ -1,12 +1,12 @@
 import {
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
   type ConnectorContextId,
   type ConnectorInboundPrompt,
   type InboundDeliveryMeta,
 } from "@dsh-connector/core";
 import { MS_PER_SECOND } from "./constants";
-import { formatTelegramContextId } from "./context-target";
 import type {
   TelegramChat,
   TelegramChatType,
@@ -485,7 +485,7 @@ export function normalizeTelegramUpdate(
   }
 
   const bodyMarker = extractContextMarker(rawText);
-  const { replyToMessage, extractedContextId: replyContextId } = extractReplyReference(message);
+  const { replyToMessage } = extractReplyReference(message);
 
   const messageThreadId =
     message.message_thread_id !== undefined &&
@@ -494,13 +494,12 @@ export function normalizeTelegramUpdate(
       ? message.message_thread_id
       : undefined;
 
-  const fallbackBusinessContextId = formatTelegramContextId({
-    chatType,
-    chatId: message.chat.id,
-    ...(messageThreadId !== undefined ? { messageThreadId } : {}),
+  const reply = message.reply_to_message;
+  const contextId = resolveInboundContextId({
+    messageId: `${message.chat.id}:${message.message_id}`,
+    body: rawText,
+    quotedTexts: [reply?.text ?? reply?.caption, message.quote?.text],
   });
-
-  const contextId = bodyMarker.contextId ?? replyContextId ?? fallbackBusinessContextId;
   const cleanedText = mentionedBot
     ? stripBotMention(bodyMarker.cleanedContent, botUsername)
     : bodyMarker.cleanedContent.trim();

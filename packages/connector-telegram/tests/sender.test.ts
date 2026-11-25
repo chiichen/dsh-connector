@@ -50,7 +50,7 @@ describe("TelegramSender", () => {
     expect(sentPayloads[0]).toMatchObject({
       chat_id: -100777,
       message_thread_id: 88,
-      text: "Deployment finished.",
+      text: "<!-- dsh-ctx:group:-100777:88 -->\nDeployment finished.",
       reply_parameters: { message_id: 499, allow_sending_without_reply: true },
     });
     expect(result.messageId).toBe(501);
