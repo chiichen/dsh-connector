@@ -17,6 +17,7 @@ export {
   BRACKET_CONTEXT_PREFIX,
   BRACKET_CONTEXT_SUFFIX,
   CONNECTOR_CONTEXT_SEPARATOR,
+  contextIdFromMessageId,
   createConnectorContext,
   createDefaultContextIdGenerator,
   extractContextMarker,
@@ -25,8 +26,10 @@ export {
   isNonEmptyContextId,
   isValidConnectorName,
   MAX_CONNECTOR_NAME_LEN,
+  MESSAGE_CONTEXT_ID_PREFIX,
   MIN_CONNECTOR_NAME_LEN,
   prependContextMarker,
+  resolveInboundContextId,
 } from "./context";
 
 export {

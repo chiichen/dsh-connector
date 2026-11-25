@@ -15,6 +15,8 @@ export const HTML_COMMENT_CONTEXT_PREFIX = "<!-- dsh-ctx:" as const;
 export const HTML_COMMENT_CONTEXT_SUFFIX = " -->" as const;
 export const BRACKET_CONTEXT_PREFIX = "[#ctx:" as const;
 export const BRACKET_CONTEXT_SUFFIX = "]" as const;
+/** Prefix for a context id derived from one inbound message's own id. */
+export const MESSAGE_CONTEXT_ID_PREFIX = "msg:" as const;
 
 const CONNECTOR_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const CONTROL_CHARS_RE = /[\r\n\0]/;
@@ -156,4 +158,57 @@ export function extractContextMarker(content: string): {
     contextId: bestContextId,
     cleanedContent: keptLines.join("\n"),
   };
+}
+
+/**
+ * Builds a new context id from one inbound message id.
+ * The same message id always builds the same string. A different message id does not.
+ */
+export function contextIdFromMessageId(messageId: string): ConnectorContextId {
+  const trimmed = messageId.trim();
+  if (!isNonEmptyContextId(trimmed)) {
+    throw new ConnectorValidationError(
+      "Inbound message id must be a non-empty single-line string without null or newline characters.",
+    );
+  }
+  const contextId = `${MESSAGE_CONTEXT_ID_PREFIX}${trimmed}`;
+  assertNonEmptyContextId(contextId);
+  return contextId;
+}
+
+function quotedLines(quotedTexts: readonly (string | undefined)[] | undefined): readonly string[] {
+  if (quotedTexts === undefined) return [];
+  const lines: string[] = [];
+  for (const quoted of quotedTexts) {
+    if (quoted === undefined || quoted.length === 0) continue;
+    for (const line of quoted.split("\n")) {
+      lines.push(`> ${line}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Inbound context id. A marker in the current body or in quoted/replied original
+ * text already present on the payload wins. The shallowest marker line wins when
+ * several are present. Otherwise the id is derived from this message's own id.
+ *
+ * Callers must not fetch history to fill `quotedTexts`. Pass only text the
+ * inbound payload already contains.
+ */
+export function resolveInboundContextId(input: {
+  readonly messageId: string;
+  readonly body?: string;
+  readonly quotedTexts?: readonly (string | undefined)[];
+}): ConnectorContextId {
+  const lines: string[] = [];
+  if (input.body !== undefined && input.body.length > 0) {
+    lines.push(input.body);
+  }
+  lines.push(...quotedLines(input.quotedTexts));
+  if (lines.length > 0) {
+    const extracted = extractContextMarker(lines.join("\n")).contextId;
+    if (extracted !== undefined) return extracted;
+  }
+  return contextIdFromMessageId(input.messageId);
 }
