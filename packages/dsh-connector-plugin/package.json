@@ -64,22 +64,12 @@
     "@deepseek-ai/dsh-storage-json": "0.2.2-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
     "@deepseek-ai/dsh-util-values": "0.2.2-rc.5",
-    "@repo/eslint-config": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
     "@tsdown/css": "0.23.7",
-    "@types/node": "^24.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@vitest/coverage-v8": "5.1.1",
-    "eslint": "10.9.1",
     "happy-dom": "^20.0.10",
-    "oxfmt": "0.79.0",
-    "oxlint": "1.94.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tsdown": "^0.23.7",
-    "typescript": "7.0.2",
-    "vitest": "5.1.1"
+    "react-dom": "^18.3.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.1.0-0 <5.0.0",
