@@ -11,6 +11,7 @@ import { createUserMessage, type ReasoningEffortId } from "@deepseek-ai/dsh-llm"
 import { SessionId } from "@deepseek-ai/dsh-session";
 import type {} from "@deepseek-ai/dsh-session-persistence";
 import type {} from "@deepseek-ai/dsh-session-title";
+import { chooseWorkspaceId, listedWorkspaceIds } from "./workspace-selection";
 
 const SESSION_ID_PREFIX = "session-" as const;
 const USER_MESSAGE_SOURCE_KIND = "user" as const;
@@ -59,12 +60,16 @@ export class DshSessionDriver implements SessionDriver {
     let sessionId: SessionId;
 
     if (controller !== undefined) {
+      // `sessionController.create({ workspaceId })` resolves the workspace,
+      // creates the Session in its directory, and calls `attachSession`.
+      // A cwd-only request leaves the Session outside every workspace.
+      // https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/api/session-controller/src/commands.ts
+      const workspaceId = this.receiveWorkspaceId();
       const createReq: SessionCreateRequest =
-        this.workspaceId !== undefined
+        workspaceId !== undefined
           ? {
-              workspaceId: brandString<NonNullable<SessionCreateRequest["workspaceId"]>>(
-                this.workspaceId,
-              ),
+              workspaceId:
+                brandString<NonNullable<SessionCreateRequest["workspaceId"]>>(workspaceId),
             }
           : { cwd: this.defaultCwd };
       const created = await controller.create(createReq);
@@ -132,6 +137,18 @@ export class DshSessionDriver implements SessionDriver {
     } else {
       agent.followup(message);
     }
+  }
+
+  /**
+   * Workspace for the next inbound Session. A saved id that is still registered
+   * wins. Otherwise the first workspace in `workspaceRegistry.list()` order is
+   * used, matching the settings page. No registry keeps the saved id.
+   * https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/workspace/workspace/src/index.ts
+   */
+  private receiveWorkspaceId(): string | undefined {
+    const listed = listedWorkspaceIds(this.ctx);
+    if (listed === undefined) return this.workspaceId;
+    return chooseWorkspaceId(this.workspaceId, listed);
   }
 
   private resolveAgentOptions(): AgentOptions | undefined {

@@ -1,11 +1,12 @@
-import { useRef, useSyncExternalStore, type ReactElement } from "react";
+import { useCallback, useRef, useSyncExternalStore, type ReactElement } from "react";
 import enLocale from "../../locale/en.json";
 import zhLocale from "../../locale/zh.json";
 import { CONNECTOR_PLUGIN_NAME } from "../constants";
 import { isRecord } from "../platforms/records";
 import type { PlatformsConfig } from "../platforms/types";
-import { platformSettingsOps, type SettingsPathOp } from "./persist";
-import { ConnectorSettingsPanel, normalizeLocale } from "./panel";
+import { workspaceIdFromConfigValue, type WorkspaceChoice } from "../workspace-selection";
+import { platformSettingsOps, workspaceSettingsOp, type SettingsPathOp } from "./persist";
+import { ConnectorSettingsPanel, normalizeLocale, type WorkspaceListStatus } from "./panel";
 import css from "./panel.module.css";
 
 /**
@@ -17,7 +18,7 @@ import css from "./panel.module.css";
  */
 
 export const name = CONNECTOR_PLUGIN_NAME;
-export const inject = ["slots", "configForms", "locale"] as const;
+export const inject = ["slots", "configForms", "locale", "workspaces"] as const;
 
 export const CONFIG_ENTRY_ID = CONNECTOR_PLUGIN_NAME;
 export const SETTINGS_SECTION_ID = CONNECTOR_PLUGIN_NAME;
@@ -38,8 +39,81 @@ export interface ConfigFormHandle {
   mutate(ops: readonly SettingsPathOp[]): Promise<boolean> | boolean;
 }
 
+/**
+ * One row of `ctx.workspaces.list`.
+ * @see https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/api/workspace-controller/src/types.ts
+ */
+export interface SettingsWorkspaceView {
+  readonly workspaceId: string;
+  readonly title: string;
+  readonly path: string;
+}
+
+/**
+ * Snapshot from `ctx.workspaces.list.getSnapshot()`.
+ * @see https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/api/workspace-controller/src/client/model.ts
+ */
+export interface SettingsWorkspaceSnapshot {
+  readonly items: readonly SettingsWorkspaceView[];
+  readonly phase: "pending" | "ready";
+  readonly error: { readonly message: string } | null;
+}
+
+/**
+ * `ctx.workspaces.list`, the client projection of the current profile's workspaces.
+ * @see https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/api/workspace-controller/src/client/service.ts
+ */
+export interface SettingsWorkspaceList {
+  getSnapshot(): SettingsWorkspaceSnapshot;
+  subscribe(listener: () => void): () => void;
+}
+
+const EMPTY_WORKSPACE_SNAPSHOT: SettingsWorkspaceSnapshot = {
+  items: [],
+  phase: "pending",
+  error: null,
+};
+
+function sameWorkspaceSnapshot(
+  left: SettingsWorkspaceSnapshot,
+  right: SettingsWorkspaceSnapshot,
+): boolean {
+  if (left.phase !== right.phase || left.error?.message !== right.error?.message) return false;
+  if (left.items.length !== right.items.length) return false;
+  return left.items.every((item, index) => {
+    const other = right.items[index];
+    return (
+      other !== undefined &&
+      item.workspaceId === other.workspaceId &&
+      item.title === other.title &&
+      item.path === other.path
+    );
+  });
+}
+
+export function workspaceChoices(
+  items: readonly SettingsWorkspaceView[],
+): readonly WorkspaceChoice[] {
+  return items.map((item) => ({
+    id: item.workspaceId,
+    title: item.title,
+    path: item.path,
+  }));
+}
+
+export function workspaceListStatus(
+  source: SettingsWorkspaceList | undefined,
+  snapshot: SettingsWorkspaceSnapshot,
+): WorkspaceListStatus {
+  if (source === undefined) return "absent";
+  if (snapshot.error !== null) return "error";
+  if (snapshot.phase === "ready") return "ready";
+  return "loading";
+}
+
 export interface ConnectorSettingsHost {
   effect(callback: () => void | (() => void)): void;
+  workspaces?: { readonly list: SettingsWorkspaceList };
   locale: {
     register(
       namespace: string,
@@ -60,11 +134,16 @@ export interface ConnectorSettingsHost {
         readonly order: number;
         readonly label: () => string;
         readonly locale: string;
-        readonly inject: () => { readonly form: ConfigFormHandle; readonly localeTag: string };
+        readonly inject: () => {
+          readonly form: ConfigFormHandle;
+          readonly localeTag: string;
+          readonly workspaces?: { readonly list: SettingsWorkspaceList };
+        };
       },
       component: (props: {
         readonly form?: ConfigFormHandle;
         readonly localeTag?: string;
+        readonly workspaces?: { readonly list: SettingsWorkspaceList };
       }) => ReactElement,
     ): () => void;
   };
@@ -110,9 +189,27 @@ function useConfigForm(form: ConfigFormHandle): ConfigFormSnapshot {
   return useSyncExternalStore((listener) => form.subscribe(listener), read, read);
 }
 
+function useWorkspaceList(list: SettingsWorkspaceList | undefined): SettingsWorkspaceSnapshot {
+  const stored = useRef<SettingsWorkspaceSnapshot>(EMPTY_WORKSPACE_SNAPSHOT);
+  const read = useCallback((): SettingsWorkspaceSnapshot => {
+    if (list === undefined) return EMPTY_WORKSPACE_SNAPSHOT;
+    const next = list.getSnapshot();
+    const previous = stored.current;
+    if (sameWorkspaceSnapshot(previous, next)) return previous;
+    stored.current = next;
+    return next;
+  }, [list]);
+  const subscribe = useCallback(
+    (listener: () => void) => list?.subscribe(listener) ?? (() => {}),
+    [list],
+  );
+  return useSyncExternalStore(subscribe, read, read);
+}
+
 export function ConnectorSettingsEntry(props: {
   readonly form?: ConfigFormHandle;
   readonly localeTag?: string;
+  readonly workspaces?: { readonly list: SettingsWorkspaceList };
 }): ReactElement {
   const locale = normalizeLocale(props.localeTag);
   if (props.form === undefined) {
@@ -123,21 +220,31 @@ export function ConnectorSettingsEntry(props: {
       </p>
     );
   }
-  return <ConnectorSettingsForm form={props.form} locale={locale} />;
+  return <ConnectorSettingsForm form={props.form} locale={locale} workspaces={props.workspaces} />;
 }
 
 function ConnectorSettingsForm(props: {
   readonly form: ConfigFormHandle;
   readonly locale: "en" | "zh";
+  readonly workspaces?: { readonly list: SettingsWorkspaceList };
 }): ReactElement {
   const snapshot = useConfigForm(props.form);
+  const workspaceSnapshot = useWorkspaceList(props.workspaces?.list);
+  const savedWorkspaceId = workspaceIdFromConfigValue(snapshot.value);
   return (
     <ConnectorSettingsPanel
       platforms={platformsFromConfigValue(snapshot.value)}
+      workspaceId={savedWorkspaceId}
+      workspaces={workspaceChoices(workspaceSnapshot.items)}
+      workspaceListStatus={workspaceListStatus(props.workspaces?.list, workspaceSnapshot)}
       locale={props.locale}
       disabled={snapshot.writable === false}
-      onSave={async (platforms) => {
+      onSave={async (platforms, workspace) => {
         const ops = platformSettingsOps(platformsFromConfigValue(snapshot.value), platforms);
+        if (workspace !== undefined) {
+          const workspaceOp = workspaceSettingsOp(savedWorkspaceId, workspace.id);
+          if (workspaceOp !== undefined) ops.push(workspaceOp);
+        }
         if (ops.length === 0) return;
         const accepted = await props.form.mutate(ops);
         if (!accepted) {
@@ -167,6 +274,7 @@ export function apply(ctx: ConnectorSettingsHost): void {
           inject: () => ({
             form: ctx.configForms.get(CONFIG_ENTRY_ID),
             localeTag: readLocaleTag(ctx.locale),
+            workspaces: ctx.workspaces,
           }),
         },
         ConnectorSettingsEntry,

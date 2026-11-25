@@ -15,6 +15,12 @@
     "platformList": "连接器",
     "enableHint": "启用此连接器后，填写它实际读取的凭据和选项。",
     "required": "必填",
-    "optional": "选填"
+    "optional": "选填",
+    "workspace": "工作区",
+    "workspaceHint": "收到消息后，在这个工作区发起会话。九个连接器共用这一选择。",
+    "workspaceEmpty": "当前 profile 还没有工作区。",
+    "workspaceLoading": "正在读取工作区…",
+    "workspaceFailed": "工作区列表没有读取成功。",
+    "workspaceUnavailable": "当前宿主没有提供工作区列表。"
   }
 }

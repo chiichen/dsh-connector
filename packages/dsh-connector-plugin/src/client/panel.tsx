@@ -9,6 +9,7 @@ import {
 } from "react";
 import enLocale from "../../locale/en.json";
 import zhLocale from "../../locale/zh.json";
+import { SETTINGS_WORKSPACE_ID_KEY } from "../constants";
 import {
   PLATFORM_BY_ID,
   PLATFORM_CATALOG,
@@ -24,6 +25,12 @@ import type {
   PlatformsConfig,
 } from "../platforms/types";
 import { preparePlatformSave } from "../platforms/validate";
+import {
+  chooseWorkspaceId,
+  workspaceOptionLabel,
+  type WorkspaceChoice,
+  type WorkspaceSettingsSave,
+} from "../workspace-selection";
 import { createSettingsDraft, reduceSettingsDraft, type SettingsDraft } from "./draft";
 import { samePlatforms, secretWasRedacted } from "./persist";
 import css from "./panel.module.css";
@@ -43,6 +50,12 @@ interface ChromeCopy {
   readonly enableHint: string;
   readonly required: string;
   readonly optional: string;
+  readonly workspace: string;
+  readonly workspaceHint: string;
+  readonly workspaceEmpty: string;
+  readonly workspaceLoading: string;
+  readonly workspaceFailed: string;
+  readonly workspaceUnavailable: string;
 }
 
 const CHROME: Record<SettingsLocale, ChromeCopy> = {
@@ -50,11 +63,19 @@ const CHROME: Record<SettingsLocale, ChromeCopy> = {
   zh: zhLocale.settings,
 };
 
+export type WorkspaceListStatus = "absent" | "loading" | "ready" | "error";
+
 export interface ConnectorSettingsPanelProps {
   readonly platforms?: PlatformsConfig;
   readonly locale?: SettingsLocale;
   readonly disabled?: boolean;
-  readonly onSave: (platforms: PlatformsConfig) => void | Promise<void>;
+  readonly workspaces?: readonly WorkspaceChoice[];
+  readonly workspaceId?: string;
+  readonly workspaceListStatus?: WorkspaceListStatus;
+  readonly onSave: (
+    platforms: PlatformsConfig,
+    workspace?: WorkspaceSettingsSave,
+  ) => void | Promise<void>;
 }
 
 function stringValue(record: PlatformRecord | undefined, key: string): string {
@@ -235,9 +256,77 @@ function FieldControl(props: {
   );
 }
 
+const WORKSPACE_CONTROL_ID = "dsh-connector-workspace" as const;
+
+function WorkspaceChoiceControl(props: {
+  readonly choices: readonly WorkspaceChoice[];
+  readonly selectedId: string | undefined;
+  readonly status: WorkspaceListStatus;
+  readonly locale: SettingsLocale;
+  readonly onPick: (id: string) => void;
+}): ReactElement {
+  const chrome = CHROME[props.locale];
+  let body: ReactNode;
+  if (props.status === "ready" && props.selectedId !== undefined) {
+    body = (
+      <select
+        id={WORKSPACE_CONTROL_ID}
+        name={SETTINGS_WORKSPACE_ID_KEY}
+        className={css.control}
+        data-field={SETTINGS_WORKSPACE_ID_KEY}
+        value={props.selectedId}
+        onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+          props.onPick(event.currentTarget.value);
+        }}
+      >
+        {props.choices.map((workspace) => (
+          <option key={workspace.id} value={workspace.id} title={workspace.path}>
+            {workspaceOptionLabel(workspace, props.choices)}
+          </option>
+        ))}
+      </select>
+    );
+  } else {
+    const text =
+      props.status === "ready"
+        ? chrome.workspaceEmpty
+        : props.status === "loading"
+          ? chrome.workspaceLoading
+          : props.status === "error"
+            ? chrome.workspaceFailed
+            : chrome.workspaceUnavailable;
+    body = (
+      <p className={css.hint} role="status" data-workspace-list={props.status}>
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div className={css.shared} data-workspace-list={props.status}>
+      <label className={css.field} htmlFor={WORKSPACE_CONTROL_ID}>
+        <span className={css.fieldLabel}>{chrome.workspace}</span>
+        {body}
+        <span className={css.hint}>{chrome.workspaceHint}</span>
+      </label>
+    </div>
+  );
+}
+
 export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): ReactElement {
   const locale = props.locale ?? "en";
   const chrome = CHROME[locale];
+  const workspaceStatus = props.workspaceListStatus ?? "absent";
+  const workspaceChoices = props.workspaces ?? [];
+  const [pickedWorkspaceId, setPickedWorkspaceId] = useState<string | undefined>(undefined);
+  const pickedStillListed =
+    pickedWorkspaceId !== undefined &&
+    workspaceChoices.some((workspace) => workspace.id === pickedWorkspaceId);
+  const selectedWorkspace = pickedStillListed
+    ? pickedWorkspaceId
+    : chooseWorkspaceId(
+        props.workspaceId,
+        workspaceChoices.map((workspace) => workspace.id),
+      );
   const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(props.platforms));
   const draftRef = useRef(draft);
   const hydratedPlatforms = useRef(props.platforms);
@@ -284,7 +373,10 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
       return;
     }
     try {
-      await props.onSave(prepared.platforms);
+      await props.onSave(
+        prepared.platforms,
+        workspaceStatus === "ready" ? { id: selectedWorkspace } : undefined,
+      );
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       update(reduceSettingsDraft(draft, { type: "status", status: { kind: "error", text } }));
@@ -323,6 +415,13 @@ export function ConnectorSettingsPanel(props: ConnectorSettingsPanelProps): Reac
         }}
       >
         <fieldset className={css.fields} disabled={props.disabled === true}>
+          <WorkspaceChoiceControl
+            choices={workspaceChoices}
+            selectedId={selectedWorkspace}
+            status={workspaceStatus}
+            locale={locale}
+            onPick={setPickedWorkspaceId}
+          />
           <h2 className={css.title}>{textOf(definition.label, locale)}</h2>
           <p className={css.hint}>{textOf(definition.description, locale)}</p>
           <label className={css.check}>

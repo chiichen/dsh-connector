@@ -15,6 +15,12 @@
     "platformList": "Connectors",
     "enableHint": "Enable this connector to fill in the credentials and options it reads.",
     "required": "Required",
-    "optional": "Optional"
+    "optional": "Optional",
+    "workspace": "Workspace",
+    "workspaceHint": "An inbound message starts a session in this workspace. Every connector uses this choice.",
+    "workspaceEmpty": "This profile has no workspace yet.",
+    "workspaceLoading": "Loading workspaces…",
+    "workspaceFailed": "The workspace list could not be loaded.",
+    "workspaceUnavailable": "This host did not provide a workspace list."
   }
 }

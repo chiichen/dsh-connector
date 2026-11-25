@@ -417,4 +417,121 @@ describe("connector settings interaction", () => {
     expect(telegramMode.value).toBe("webhook");
     await unmount(view);
   });
+
+  it("lists the profile workspaces, selects a real one, and saves that id for every connector", async () => {
+    const workspaces = [
+      { id: "ws-a", title: "repoa", path: "/work/repoa" },
+      { id: "ws-b", title: "repob", path: "/work/repob" },
+    ];
+    const saved: Array<{ id: string | undefined } | undefined> = [];
+    const view = await render(
+      createElement(ConnectorSettingsPanel, {
+        workspaces,
+        workspaceListStatus: "ready",
+        onSave: (_platforms, workspace) => {
+          saved.push(workspace);
+        },
+      }),
+    );
+    const select = view.container.querySelector('select[name="workspaceId"]');
+    if (!(select instanceof HTMLSelectElement)) throw new Error("missing workspace select");
+    expect([...select.options].map((option) => option.value)).toEqual(["ws-a", "ws-b"]);
+    expect([...select.options].some((option) => option.value === "")).toBe(false);
+    expect(select.value).toBe("ws-a");
+    expect(select.selectedOptions[0]?.textContent).toBe("repoa");
+
+    await act(async () => {
+      view.container
+        .querySelector('[data-platform="telegram"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const afterSwitch = view.container.querySelector('select[name="workspaceId"]');
+    if (!(afterSwitch instanceof HTMLSelectElement))
+      throw new Error("workspace select was dropped");
+    expect(afterSwitch.value).toBe("ws-a");
+    await act(async () => {
+      setControlValue(afterSwitch, "ws-b");
+    });
+    const form = view.container.querySelector("form");
+    if (!(form instanceof HTMLFormElement)) throw new Error("missing form");
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(saved).toEqual([{ id: "ws-b" }]);
+    await unmount(view);
+
+    const reopened = await render(
+      createElement(ConnectorSettingsPanel, {
+        workspaces,
+        workspaceId: "ws-b",
+        workspaceListStatus: "ready",
+        onSave: () => {},
+      }),
+    );
+    const restored = reopened.container.querySelector('select[name="workspaceId"]');
+    if (!(restored instanceof HTMLSelectElement)) throw new Error("missing restored workspace");
+    expect(restored.value).toBe("ws-b");
+    await unmount(reopened);
+
+    const empty = await render(
+      createElement(ConnectorSettingsPanel, {
+        workspaces: [],
+        workspaceListStatus: "ready",
+        onSave: () => {},
+      }),
+    );
+    expect(empty.container.querySelector('select[name="workspaceId"]')).toBeNull();
+    expect(empty.container.textContent).toContain("no workspace");
+    await unmount(empty);
+  });
+
+  it("reads a saved workspace id back through the settings form and writes it again", async () => {
+    const snapshot = {
+      value: { workspaceId: "ws-b", platforms: {} },
+      writable: true,
+      revision: 2,
+    };
+    const writes: unknown[] = [];
+    const list = {
+      getSnapshot: () => ({
+        items: [
+          { workspaceId: "ws-a", title: "repoa", path: "/work/repoa" },
+          { workspaceId: "ws-b", title: "repob", path: "/work/repob" },
+        ],
+        phase: "ready" as const,
+        error: null,
+      }),
+      subscribe: () => () => {},
+    };
+    const configForm: ConfigFormHandle = {
+      getSnapshot: () => snapshot,
+      subscribe: () => () => {},
+      set: () => true,
+      mutate: (ops) => {
+        writes.push(ops);
+        return true;
+      },
+    };
+    const view = await render(
+      createElement(ConnectorSettingsEntry, {
+        form: configForm,
+        localeTag: "zh-CN",
+        workspaces: { list },
+      }),
+    );
+    const select = view.container.querySelector('select[name="workspaceId"]');
+    if (!(select instanceof HTMLSelectElement)) throw new Error("missing workspace select");
+    expect(select.value).toBe("ws-b");
+    expect(view.container.textContent).toContain("工作区");
+    await act(async () => {
+      setControlValue(select, "ws-a");
+    });
+    await act(async () => {
+      view.container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(writes).toEqual([[{ op: "set", path: ["workspaceId"], value: "ws-a" }]]);
+    await unmount(view);
+  });
 });

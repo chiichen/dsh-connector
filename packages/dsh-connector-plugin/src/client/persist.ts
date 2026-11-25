@@ -1,7 +1,7 @@
 import { PLATFORM_BY_ID } from "../platforms/catalog";
 import { getPath, isRecord } from "../platforms/records";
 import type { PlatformId, PlatformRecord, PlatformsConfig } from "../platforms/types";
-import { SETTINGS_PLATFORMS_KEY } from "../constants";
+import { SETTINGS_PLATFORMS_KEY, SETTINGS_WORKSPACE_ID_KEY } from "../constants";
 
 /**
  * One path edit for the host settings form.
@@ -52,6 +52,16 @@ export function platformSettingsOps(
   const ops: SettingsPathOp[] = [];
   syncValue(previous ?? {}, next, [SETTINGS_PLATFORMS_KEY], ops);
   return ops;
+}
+
+/** One settings edit for the shared receive workspace, or undefined when it is unchanged. */
+export function workspaceSettingsOp(
+  previous: string | undefined,
+  next: string | undefined,
+): SettingsPathOp | undefined {
+  if (previous === next) return undefined;
+  if (next === undefined) return { op: "unset", path: [SETTINGS_WORKSPACE_ID_KEY] };
+  return { op: "set", path: [SETTINGS_WORKSPACE_ID_KEY], value: next };
 }
 
 function syncValue(
