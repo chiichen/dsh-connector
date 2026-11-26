@@ -1,0 +1,6 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // release-please rewrites these on every release PR (`*` bullets and a
+  // blank line before each heading). Ignore only that generated file.
+  "ignorePatterns": ["packages/*/CHANGELOG.md"]
+}
