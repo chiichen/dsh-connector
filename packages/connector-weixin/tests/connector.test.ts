@@ -173,7 +173,7 @@ describe("Stage 3: WeixinConnector end-to-end non-streaming inbound/outbound & s
       expect(res1.status).toBe(200);
       expect(res1.body).toBe("success");
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("p2p:oUserAllowed");
+      expect(received[0]?.context.contextId).toBe("msg:10001");
       expect(received[0]?.params.text).toBe("第一条明文消息");
       expect(received[0]?.meta?.idempotencyKey).toBe("10001");
 
@@ -467,6 +467,7 @@ describe("Stage 3: WeixinConnector end-to-end non-streaming inbound/outbound & s
       // Outbound send to p2p:wx_user_a automatically reuses the latest cached context_token!
       const sendRes = await connector.getSender().send(received[1]!.context, {
         text: "收到，已处理完毕！",
+        openId: "wx_user_a",
       });
       expect(sendRes.mode).toBe("ilink");
       expect(sendRes.contextToken).toBe("ctx_tok_latest");

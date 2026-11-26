@@ -220,7 +220,7 @@ describe("Stage 3: Slack Events API HTTP Webhook, Socket Mode WebSocket, and ful
     );
     expect(dmRes.status).toBe(200);
     expect(received).toHaveLength(1);
-    expect(received[0]?.context.contextId).toBe("dm:D0123456789");
+    expect(received[0]?.context.contextId).toBe("msg:D0123456789:1717171717.000100");
     expect(received[0]?.params.text).toBe("Hello & check <status>");
     expect(received[0]?.meta?.idempotencyKey).toBe("D0123456789:1717171717.000100");
 
@@ -247,7 +247,7 @@ describe("Stage 3: Slack Events API HTTP Webhook, Socket Mode WebSocket, and ful
       }),
     );
     expect(received).toHaveLength(2);
-    expect(received[1]?.context.contextId).toBe("channel:C0123456789:1717171717.000200");
+    expect(received[1]?.context.contextId).toBe("msg:C0123456789:1717171717.000200");
     expect(received[1]?.params.text).toBe("please review PR #42");
     expect(received[1]?.params.threadTs).toBe("1717171717.000200");
     expect(received[1]?.meta?.idempotencyKey).toBe("C0123456789:1717171717.000200");
@@ -276,15 +276,19 @@ describe("Stage 3: Slack Events API HTTP Webhook, Socket Mode WebSocket, and ful
       }),
     );
     expect(received).toHaveLength(3);
-    expect(received[2]?.context.contextId).toBe("channel:C0123456789:1717171717.000200");
+    expect(received[2]?.context.contextId).toBe("msg:C0123456789:1717171717.000300");
     expect(received[2]?.params.text).toBe("Also verify unit tests");
 
-    // 4. Outbound reply in that session context automatically attaches thread_ts
-    await sender.send(received[2]!.context, { text: "All checks passed!" });
+    // A message context id is not a channel id; the reply names the channel and thread.
+    await sender.send(received[2]!.context, {
+      text: "All checks passed!",
+      channelId: "C0123456789",
+      threadTs: "1717171717.000200",
+    });
     expect(sentPayloads[0]).toMatchObject({
       channel: "C0123456789",
       thread_ts: "1717171717.000200",
-      text: "All checks passed!",
+      text: "[#ctx:msg:C0123456789:1717171717.000300]\nAll checks passed!",
     });
 
     // 5. Bot self-message (bot_id present) MUST be filtered out to prevent loops
@@ -463,7 +467,7 @@ describe("Stage 3: Slack Events API HTTP Webhook, Socket Mode WebSocket, and ful
 
     expect(sockets[0]!.sentFrames).toContain(JSON.stringify({ envelope_id: "env-uuid-001" }));
     expect(received[0]?.context).toEqual(
-      createConnectorContext("slack-ops", "channel:C0123456789:1717171717.000700"),
+      createConnectorContext("slack-ops", "msg:C0123456789:1717171717.000700"),
     );
     expect(received[0]?.params.text).toBe("hello over socket mode");
 

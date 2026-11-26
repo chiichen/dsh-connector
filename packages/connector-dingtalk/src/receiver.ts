@@ -2,8 +2,10 @@ import {
   ConnectorAuthError,
   ConnectorTransportError,
   ConnectorValidationError,
+  contextIdFromMessageId,
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
   type ConnectorInboundPrompt,
   type ConnectorLogger,
@@ -56,9 +58,6 @@ import {
 } from "./http";
 import {
   dingTalkReceiveSchema,
-  formatDingTalkEncryptedP2PContextId,
-  formatDingTalkGroupContextId,
-  formatDingTalkP2PContextId,
   type DingTalkCloseEventLike,
   type DingTalkCreateWebSocketFn,
   type DingTalkInboundMessage,
@@ -856,6 +855,25 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     }
   }
 
+  private contextIdWhenMessageIdMissing(
+    body: string,
+    quoted: string | undefined,
+  ): ReturnType<typeof resolveInboundContextId> {
+    const probed = resolveInboundContextId({
+      messageId: "missing",
+      body,
+      quotedTexts: [quoted],
+    });
+    if (probed !== contextIdFromMessageId("missing")) return probed;
+    if (this.receiverCtx === undefined) {
+      throw new ConnectorValidationError(
+        `DingTalkReceiver "${this.connectorName}" has not been initialized via init(ctx).`,
+        { connectorName: this.connectorName },
+      );
+    }
+    return this.receiverCtx.allocateContextId();
+  }
+
   private async ingestRobotPayload(
     payload: DingTalkRobotCallbackPayload,
     fallbackMessageId?: string,
@@ -900,33 +918,31 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
     }
 
     const rawMainText = extractInboundMainText(payload);
-    const { contextId: mainMarkerId, cleanedContent: cleanedMainText } =
-      extractContextMarker(rawMainText);
+    const { cleanedContent: cleanedMainText } = extractContextMarker(rawMainText);
     const normalizedText = cleanedMainText.trim();
     if (normalizedText.length === 0) {
       return undefined;
     }
 
     const rawQuoted = extractQuotedText(payload);
-    let quotedMarkerId: string | undefined;
     let cleanedQuotedText: string | undefined;
     if (rawQuoted !== undefined) {
       const extractedQuote = extractContextMarker(rawQuoted);
-      quotedMarkerId = extractedQuote.contextId;
       const trimmedQuote = extractedQuote.cleanedContent.trim();
       if (trimmedQuote.length > 0) {
         cleanedQuotedText = trimmedQuote;
       }
     }
 
-    const canonicalBusinessContextId =
-      conversationType === DINGTALK_CONVERSATION_GROUP
-        ? formatDingTalkGroupContextId(conversationId)
-        : senderStaffId !== undefined
-          ? formatDingTalkP2PContextId(senderStaffId)
-          : formatDingTalkEncryptedP2PContextId(senderId);
-
-    const resolvedContextId = quotedMarkerId ?? mainMarkerId ?? canonicalBusinessContextId;
+    const messageKey = nonEmptyTrimmed(payload.msgId) ?? fallbackMessageId;
+    const resolvedContextId =
+      messageKey !== undefined
+        ? resolveInboundContextId({
+            messageId: messageKey,
+            body: rawMainText,
+            quotedTexts: [rawQuoted],
+          })
+        : this.contextIdWhenMessageIdMissing(rawMainText, rawQuoted);
     const context = createConnectorContext(this.connectorName, resolvedContextId);
 
     const sessionWebhook = nonEmptyTrimmed(payload.sessionWebhook);
@@ -936,9 +952,6 @@ export class DingTalkReceiver<TName extends string = string> implements Connecto
         this.now() + DINGTALK_DEFAULT_SESSION_WEBHOOK_TTL_MS;
       try {
         this.webhookCache.set(resolvedContextId, sessionWebhook, expiresAt);
-        if (canonicalBusinessContextId !== resolvedContextId) {
-          this.webhookCache.set(canonicalBusinessContextId, sessionWebhook, expiresAt);
-        }
       } catch {
         // Ignore untrusted/malformed sessionWebhook URLs without dropping the inbound message
       }

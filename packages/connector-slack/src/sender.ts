@@ -101,7 +101,7 @@ export function createSlackSender<const TName extends string>(
       });
 
       const wireText =
-        options.includeContextMarker === true
+        options.includeContextMarker !== false
           ? prependContextMarker(params.text, context.contextId, markerStyle)
           : params.text;
 

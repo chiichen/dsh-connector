@@ -124,7 +124,7 @@ describe("Stage 2: QQ dynamic access_token and outbound message sender", () => {
       auth: "QQBot live-token",
       body: {
         msg_type: 0,
-        content: "First reply",
+        content: "[#ctx:c2c:U_OPEN_1]\nFirst reply",
         msg_id: "IN_C2C_MSG_1",
         msg_seq: 1,
       },
@@ -157,7 +157,7 @@ describe("Stage 2: QQ dynamic access_token and outbound message sender", () => {
       auth: "QQBot live-token",
       body: {
         msg_type: 2,
-        markdown: { content: "**Hello Group**" },
+        markdown: { content: "[#ctx:group:G_OPEN_9]\n**Hello Group**" },
         msg_id: "IN_GRP_MSG_9",
         msg_seq: 1,
       },
@@ -172,7 +172,7 @@ describe("Stage 2: QQ dynamic access_token and outbound message sender", () => {
       url: "https://api.sgroup.qq.com/channels/CH_88/messages",
       auth: "QQBot live-token",
       body: {
-        content: "Hello Channel",
+        content: "[#ctx:channel:GUILD_1:CH_88]\nHello Channel",
         msg_id: "IN_CH_MSG_8",
       },
     });
@@ -240,7 +240,7 @@ describe("Stage 2: QQ dynamic access_token and outbound message sender", () => {
     expect(seenBodies[1]).toMatchObject({ msg_type: 2, msg_id: "M_1", msg_seq: 1 });
     expect(seenBodies[2]).toMatchObject({
       msg_type: 0,
-      content: "# Title",
+      content: "[#ctx:c2c:U_1]\n# Title",
       msg_id: "M_1",
       msg_seq: 2,
     });

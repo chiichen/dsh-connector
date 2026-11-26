@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { extractContextMarker, type ConnectorContextId } from "@dsh-connector/core";
+import {
+  extractContextMarker,
+  resolveInboundContextId,
+  type ConnectorContextId,
+} from "@dsh-connector/core";
 import {
   SLACK_ALLOWED_SUBTYPE_FILE_SHARE,
   SLACK_CHANNEL_TYPE_CHANNEL,
@@ -12,12 +16,7 @@ import {
   SLACK_EVENT_MESSAGE,
   SLACK_WEBHOOK_TYPE_EVENT_CALLBACK,
 } from "./constants";
-import {
-  formatSlackContextId,
-  isValidSlackChannelId,
-  isValidSlackTimestamp,
-  type SlackConversationTarget,
-} from "./context-target";
+import { isValidSlackChannelId, isValidSlackTimestamp } from "./context-target";
 
 export type SlackChannelType =
   | typeof SLACK_CHANNEL_TYPE_IM
@@ -253,23 +252,17 @@ export function parseSlackEventCallback(
   const { contextId: extractedMarkerId, cleanedContent } = extractContextMarker(decodedText);
 
   let eventType: SlackInboundEventType;
-  let defaultTarget: SlackConversationTarget;
   let effectiveThreadTs: string | undefined;
   let participatingThread: { readonly channelId: string; readonly threadTs: string } | undefined;
 
   if (rawEventType === SLACK_EVENT_MESSAGE && channelType === SLACK_CHANNEL_TYPE_IM) {
     eventType = SLACK_EVENT_MESSAGE;
     effectiveThreadTs = validThreadTs;
-    defaultTarget =
-      effectiveThreadTs !== undefined
-        ? { kind: SLACK_CONTEXT_DM_KIND, channelId, threadTs: effectiveThreadTs }
-        : { kind: SLACK_CONTEXT_DM_KIND, channelId };
   } else if (rawEventType === SLACK_EVENT_APP_MENTION) {
     eventType = SLACK_EVENT_APP_MENTION;
     effectiveThreadTs = validThreadTs ?? messageTs;
     const kind =
       channelType === SLACK_CHANNEL_TYPE_IM ? SLACK_CONTEXT_DM_KIND : SLACK_CONTEXT_CHANNEL_KIND;
-    defaultTarget = { kind, channelId, threadTs: effectiveThreadTs };
     if (kind === SLACK_CONTEXT_CHANNEL_KIND) {
       participatingThread = { channelId, threadTs: effectiveThreadTs };
     }
@@ -299,11 +292,6 @@ export function parseSlackEventCallback(
 
     eventType = SLACK_EVENT_MESSAGE;
     effectiveThreadTs = validThreadTs;
-    defaultTarget = {
-      kind: SLACK_CONTEXT_CHANNEL_KIND,
-      channelId,
-      threadTs: effectiveThreadTs,
-    };
   } else {
     return { kind: "ignored", reason: "unsupported_event" };
   }
@@ -318,8 +306,10 @@ export function parseSlackEventCallback(
     return { kind: "ignored", reason: "empty_text" };
   }
 
-  const contextId =
-    extractedMarkerId ?? formatSlackContextId(defaultTarget, options?.connectorName);
+  const contextId = resolveInboundContextId({
+    messageId: `${channelId}:${messageTs}`,
+    body: decodedText,
+  });
   const teamId = nonEmptyString(payload["team_id"]) ?? nonEmptyString(event["team"]);
   const eventTimeSec =
     typeof payload["event_time"] === "number" && Number.isFinite(payload["event_time"])

@@ -7,8 +7,11 @@ import {
   CONNECTOR_CONTEXT_SEPARATOR,
   createConnectorContext,
   createDefaultContextIdGenerator,
+  contextIdFromMessageId,
   extractContextMarker,
   HTML_COMMENT_CONTEXT_PREFIX,
+  MESSAGE_CONTEXT_ID_PREFIX,
+  resolveInboundContextId,
   HTML_COMMENT_CONTEXT_SUFFIX,
   isNonEmptyContextId,
   isValidConnectorName,
@@ -242,5 +245,69 @@ describe("prependContextMarker & extractContextMarker", () => {
       contextId: "shallow-winner",
       cleanedContent: "Reply text",
     });
+  });
+});
+
+describe("inbound context id from message content or message id", () => {
+  it("exports the shared message-id prefix and builds msg:<id> from this message", () => {
+    expect(MESSAGE_CONTEXT_ID_PREFIX).toBe("msg:");
+    expect(contextIdFromMessageId(" om_msg_1001 ")).toBe("msg:om_msg_1001");
+    expect(contextIdFromMessageId("C012:1717171717.000200")).toBe("msg:C012:1717171717.000200");
+  });
+
+  it("rejects an empty or multi-line message id", () => {
+    expect(() => contextIdFromMessageId("   ")).toThrow(ConnectorValidationError);
+    expect(() => contextIdFromMessageId("line\nbreak")).toThrow(ConnectorValidationError);
+  });
+
+  it("reuses a marker in the body before one in quoted original text", () => {
+    const resolved = resolveInboundContextId({
+      messageId: "m-new",
+      body: "[#ctx:from-body]",
+      quotedTexts: ["[#ctx:from-quote]\nolder"],
+    });
+    expect(resolved).toBe("from-body");
+  });
+
+  it("reuses a marker that is only in quoted original text already on the payload", () => {
+    const resolved = resolveInboundContextId({
+      messageId: "m-new",
+      body: "what about this?",
+      quotedTexts: ["> [#ctx:quoted-session]\nprevious reply"],
+    });
+    expect(resolved).toBe("quoted-session");
+  });
+
+  it("keeps the shallowest marker when several quoted texts contain one", () => {
+    const resolved = resolveInboundContextId({
+      messageId: "m-new",
+      body: "no marker here",
+      quotedTexts: ["> > [#ctx:deeper]", "[#ctx:shallower]"],
+    });
+    expect(resolved).toBe("shallower");
+  });
+
+  it("builds a new id from this message id when no marker is present", () => {
+    const first = resolveInboundContextId({
+      messageId: "wamid.AAA",
+      body: "hello",
+      quotedTexts: ["wamid.ONLY-AN-ID"],
+    });
+    const second = resolveInboundContextId({
+      messageId: "wamid.BBB",
+      body: "hello again",
+    });
+    expect(first).toBe("msg:wamid.AAA");
+    expect(second).toBe("msg:wamid.BBB");
+    expect(first).not.toBe(second);
+  });
+
+  it("accepts an html-comment marker inside quoted text", () => {
+    const resolved = resolveInboundContextId({
+      messageId: "42",
+      body: "reply",
+      quotedTexts: ["<!-- dsh-ctx:html-session -->\nbot said"],
+    });
+    expect(resolved).toBe("html-session");
   });
 });

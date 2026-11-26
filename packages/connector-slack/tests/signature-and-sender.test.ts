@@ -373,7 +373,7 @@ describe("Stage 2: Slack v0 signature verification, Web API client, and outbound
       });
       expect(activeThreads).toEqual([{ channelId: "C0123456789", threadTs: "1717171717.000100" }]);
 
-      // Top-level DM without threadTs and without includeContextMarker
+      // Top-level DM. The default send includes a parseable context marker.
       const plainSender = createSlackSender({
         connectorName: "slack",
         apiClient: client,
@@ -384,7 +384,7 @@ describe("Stage 2: Slack v0 signature verification, Web API client, and outbound
       expect(dmResult.summary).toBe("Sent Slack message to D0123456789");
       expect(sentBodies[1]).toMatchObject({
         channel: "D0123456789",
-        text: "Direct ping",
+        text: "[#ctx:dm:D0123456789]\nDirect ping",
         mrkdwn: false,
       });
 

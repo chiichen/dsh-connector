@@ -3,8 +3,8 @@
  * 1. Event Subscription v2.0 HTTP Webhook (`url_verification`, AES-256-CBC decryption,
  *    `X-Lark-Signature` verification, `Verification Token` check, `im.message.receive_v1`).
  * 2. Shared event ingestion pipeline for WebSocket long-connection delivery (`pbbp2`).
- * 3. Quote/reply `[#ctx:<contextId>]` marker extraction (both inline and best-effort
- *    `parent_id` parent message lookup via `GET /open-apis/im/v1/messages/:parent_id`).
+ * 3. `[#ctx:<contextId>]` marker extraction from the message text already on the event.
+ *    `parent_id` is only an id, so a reply that does not include the marker text opens a new context.
  *
  * @see https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/encrypt-key-encryption-configuration-case
  * @see https://open.feishu.cn/document/event-subscription-guide/callback-subscription/step-1-choose-a-subscription-mode/send-callbacks-to-developers-server
@@ -14,7 +14,7 @@
 import {
   createConnectorContext,
   extractContextMarker,
-  type ConnectorContextId,
+  resolveInboundContextId,
   type ConnectorInboundPrompt,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
@@ -33,22 +33,14 @@ import {
   HTTP_STATUS_OK,
   HTTP_STATUS_UNAUTHORIZED,
 } from "./constants";
-import {
-  buildFeishuConversationContextId,
-  feishuReceiveSchema,
-  type FeishuInboundMessage,
-} from "./context";
+import { feishuReceiveSchema, type FeishuInboundMessage } from "./context";
 import {
   decryptFeishuPayload,
   verifyFeishuEventSignature,
   verifyFeishuVerificationToken,
 } from "./crypto";
 import type { FeishuApiClient } from "./api-client";
-import {
-  extractTextFromFetchedMessage,
-  parseFeishuMessageReceiveEvent,
-  type FeishuGroupMentionPolicy,
-} from "./message-parser";
+import { parseFeishuMessageReceiveEvent, type FeishuGroupMentionPolicy } from "./message-parser";
 
 export interface FeishuReceiverRuntime<TName extends string = string> {
   readonly receiver: ConnectorReceiver<typeof feishuReceiveSchema, TName>;
@@ -129,34 +121,6 @@ export function createFeishuReceiver<const TName extends string>(
   options: CreateFeishuReceiverOptions<TName>,
 ): FeishuReceiverRuntime<TName> {
   let receiverCtx: ConnectorReceiverContext<typeof feishuReceiveSchema, TName> | undefined;
-  const resolveParentEnabled = options.resolveReplyContextFromParent ?? true;
-
-  async function tryResolveParentMarkerContextId(
-    parentMessageId: string,
-    chatId: string,
-  ): Promise<ConnectorContextId | undefined> {
-    if (!resolveParentEnabled) return undefined;
-    try {
-      const parentItem = await options.apiClient.getMessage(parentMessageId);
-      if (
-        parentItem === undefined ||
-        parentItem.deleted === true ||
-        (parentItem.chat_id !== undefined && parentItem.chat_id !== chatId)
-      ) {
-        return undefined;
-      }
-      const parentText = extractTextFromFetchedMessage(parentItem);
-      if (parentText.length === 0) return undefined;
-      return extractContextMarker(parentText).contextId;
-    } catch (error) {
-      receiverCtx?.logger.debug("Skipping Feishu parent_id context marker lookup", {
-        connectorName: options.connectorName,
-        parentMessageId,
-        error: String(error),
-      });
-      return undefined;
-    }
-  }
 
   async function ingestEventEnvelope(envelope: Record<string, unknown>): Promise<{
     readonly accepted: boolean;
@@ -200,32 +164,16 @@ export function createFeishuReceiver<const TName extends string>(
     }
 
     const rawMsg = parsedOutcome.message;
-    const { contextId: inlineMarkerId, cleanedContent } = extractContextMarker(rawMsg.text);
+    const { cleanedContent } = extractContextMarker(rawMsg.text);
     const cleanedText = cleanedContent.trim();
     if (cleanedText.length === 0) {
       return { accepted: false, reason: "empty_or_unsupported_message" };
     }
 
-    let resolvedContextId: ConnectorContextId | undefined = inlineMarkerId;
-    if (resolvedContextId === undefined && rawMsg.parentId !== undefined) {
-      resolvedContextId = await tryResolveParentMarkerContextId(rawMsg.parentId, rawMsg.chatId);
-    }
-
-    if (resolvedContextId === undefined) {
-      resolvedContextId = buildFeishuConversationContextId({
-        chatType: rawMsg.chatType,
-        chatId: rawMsg.chatId,
-        ...(rawMsg.senderOpenId !== undefined ? { senderOpenId: rawMsg.senderOpenId } : {}),
-        ...(rawMsg.senderUserId !== undefined ? { senderUserId: rawMsg.senderUserId } : {}),
-        ...(rawMsg.threadId !== undefined ? { threadId: rawMsg.threadId } : {}),
-        ...(rawMsg.rootId !== undefined
-          ? { rootMessageId: rawMsg.rootId }
-          : rawMsg.threadId !== undefined
-            ? { rootMessageId: rawMsg.messageId }
-            : {}),
-      });
-    }
-
+    const resolvedContextId = resolveInboundContextId({
+      messageId: rawMsg.messageId,
+      body: rawMsg.text,
+    });
     const context = createConnectorContext(options.connectorName, resolvedContextId);
     const normalizedMsg: FeishuInboundMessage = {
       ...rawMsg,

@@ -167,7 +167,7 @@ describe("Stage 3: WeComReceiver HTTP Callback (GET echostr + POST XML/JSON)", (
     expect(postRes.status).toBe(200);
     expect(postRes.body).toBe("");
     expect(received).toHaveLength(1);
-    expect(received[0]?.context.contextId).toBe("app:p2p:zhangsan");
+    expect(received[0]?.context.contextId).toBe("msg:9988776655");
     expect(received[0]?.params).toMatchObject({
       source: "app-webhook",
       messageId: "9988776655",
@@ -468,7 +468,7 @@ describe("Stage 3: WeComReceiver HTTP Callback (GET echostr + POST XML/JSON)", (
       );
     }
     expect(received).toHaveLength(4);
-    expect(received[0]?.context.contextId).toBe("app:group:grp_1");
+    expect(received[0]?.context.contextId).toBe("msg:u1:1700000000000");
     expect(received[0]?.params.text).toBe("语音识别结果");
     expect(received[1]?.params.text).toContain("深圳市南山区");
     expect(received[2]?.params.text).toContain("文档链接");
@@ -542,11 +542,11 @@ describe("Stage 3: WeComReceiver HTTP Callback (GET echostr + POST XML/JSON)", (
     const formattedWithQuote = receiver.formatInbound(received[4]!.params, received[4]!.context);
     expect(formattedWithQuote.text).toContain("> 引用语音");
 
-    // Cache limit was 2 -> `aibot:p2p:ju1` evicted when `ju2` & `ju3` arrived
-    expect(receiver.consumeCachedResponseUrl("aibot:p2p:ju1")).toBeUndefined();
-    expect(receiver.consumeCachedResponseUrl("aibot:p2p:ju2")).toBe("https://example.com/r2");
-    // Advance clock past 1-hour TTL -> `ju3` expires
+    // Cache limit was 2 -> `msg:j1` evicted when `j2` and `j3` arrived
+    expect(receiver.consumeCachedResponseUrl("msg:j1")).toBeUndefined();
+    expect(receiver.consumeCachedResponseUrl("msg:j2")).toBe("https://example.com/r2");
+    // Advance clock past 1-hour TTL -> `j3` expires
     clockMs += 3_700_000;
-    expect(receiver.consumeCachedResponseUrl("aibot:p2p:ju3")).toBeUndefined();
+    expect(receiver.consumeCachedResponseUrl("msg:j3")).toBeUndefined();
   });
 });

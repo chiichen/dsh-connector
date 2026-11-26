@@ -140,7 +140,7 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
     this.webhookCache = options.webhookCache;
     this.preferSessionWebhook = options.preferSessionWebhook ?? options.tokenManager === undefined;
     this.defaultFormat = options.defaultFormat ?? "text";
-    this.contextMarker = options.contextMarker ?? false;
+    this.contextMarker = options.contextMarker ?? "bracket";
     this.apiBaseUrl = (options.apiBaseUrl ?? DINGTALK_API_BASE_URL).replace(/\/+$/, "");
     this.httpTimeoutMs = options.httpTimeoutMs ?? DINGTALK_DEFAULT_HTTP_TIMEOUT_MS;
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
@@ -274,6 +274,15 @@ export class DingTalkSender<TName extends string = string> implements ConnectorS
         openConversationId: parsedContext.openConversationId,
         robotCode,
         ...(coolAppCode !== undefined && coolAppCode.length > 0 ? { coolAppCode } : {}),
+      };
+    }
+
+    // A message-scoped context id (`msg:…` or an extracted marker) is not a DingTalk
+    // user/group id. The session webhook cached for that exact context is the reply route.
+    if (cachedWebhook !== undefined) {
+      return {
+        kind: "sessionWebhook",
+        sessionWebhook: cachedWebhook.sessionWebhook,
       };
     }
 

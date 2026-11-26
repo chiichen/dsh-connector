@@ -45,80 +45,46 @@ dsh plugin --profile <配置名> add <packages/dsh-connector-plugin 的绝对路
 
 Discord 的 Gateway 和互动回调可以同时打开，不是互斥的接入形式。
 
-## contextId
+## Context ID
 
-`contextId` 是连接器交给插件的字符串。插件把它存成 `<连接器名>--<contextId>`（`packages/dsh-connector-plugin/src/context-store.ts`）。同一对值在对应 session 还在时走同一个 dsh session。仓库里没有这条字符串时会新建 session。绑定的 session 已经不存在时，绑定会被删掉，同一条字符串会再开一个新 session。一个 session 对每个连接器只保留一个 `contextId`；再绑第二个会被拒绝，第一条保持不变。
+`contextId` 是连接器交给插件的字符串。插件把它存成 `<连接器名>--<contextId>`（`packages/dsh-connector-plugin/src/context-store.ts`）。这一对只在会话还活着时回到同一个 dsh 会话。没有存活会话的字符串会新开一个会话。绑定的会话消失后，绑定删掉，同一个字符串再来会新开一个会话。一个会话对每个连接器只保留一个 `contextId`；再绑第二个会被拒绝，第一个保持不变。
 
-入站按会话字段拼这串字。字段相同就得到同一串，所以这个会话里的下一条消息会复用它。单独成行的上下文标记会换成标记里的 id。标记是 `[#ctx:<id>]` 或 `<!-- dsh-ctx:<id> -->`（`packages/connector-core/src/context.ts`）。多行标记同时存在时，保留行首 `>` 最少的那一行。回复靠这个回到出站时先分配的 UUID。
+单聊和群聊用同一条规则。唯一会复用已有会话的情况，是入站 payload 里已经带有可提取的 Context ID：在本条正文里，或者在 payload 已经带回的引用原文里。标记形式是 `[#ctx:<id>]` 或 `<!-- dsh-ctx:<id> -->`（`packages/connector-core/src/context.ts`）。有多行标记时，保留开头 `>` 最少的那一行。正文里的标记优先于只出现在引用里的标记。引用若只给消息 id、不带回原文，就不复用。连接器不会再去拉历史把原文找回来。
 
-某个 session 对这个连接器还没有 context 时，第一次出站会存一个 `randomUUID()` 生成的 UUID（`createDefaultContextIdGenerator`）。同一 session、同一连接器上之后的发送复用这个 UUID。UUID 不会被当成平台上的接收人，所以在绑上结构化 id 之前，发送仍要显式给出目标。
+抽不出标记时，context id 是 `msg:` 加上这条入站消息自己的 id（`@dsh-connector/core` 里的 `MESSAGE_CONTEXT_ID_PREFIX`）。每次发送、每次艾特都是新的 id。同一个聊天、thread、话题里的下一条消息不会并进去。Slack 的 id 是 `msg:<channel id>:<ts>`，因为 Slack 的时间戳只在频道内唯一。Telegram 的 id 是 `msg:<chat id>:<message id>`，因为 Telegram 的消息 id 只在聊天内唯一。其余入站 id 都是 `msg:` 加上平台消息 id。
 
-走同一个入站函数的两种接入方式共用一套公式。接收端丢掉的事件（自己发的消息、空文本、没通过群里 @ 规则的消息、不支持的事件类型）不会得到 `contextId`。
+发出的正文默认带上这个标记，除非这次发送关掉它（`contextMarker` 为 `never` 或 `none`，或 `includeContextMarker: false`）。对方以后引用时才能抽出来。飞书、Slack、QQ、企微、钉钉、微信、WhatsApp、Discord 用方括号。Telegram 用 HTML 注释。默认是打开的。
 
-在字段拼接之前，按下面的顺序查标记：
+接收器丢掉的事件（自己的消息、空文本、没通过群艾特规则的消息、不支持的类型）不会得到 context id。本来没有入站消息 id 的接入方式，继续用插件在这次发送时生成的 UUID，发出的正文仍然带上这个 id。
 
-- 飞书（[接收消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)）：消息正文，然后用 `parent_id` 取到的父消息。`resolveReplyContextFromParent` 为 false 时不做父消息查询。查询失败或正文为空时，留下按字段拼出的 id。只有 `im.message.receive_v1` 会进入这套逻辑。
-- 微信公众号：`Content`，语音则是 `Recognition`。没有引用查找。（[回调](https://developers.weixin.qq.com/doc/service/guide/dev/push/)）
-- 微信 iLink：消息正文，然后引用文本。`context_token` 按用户缓存，不是 `contextId`。
-- 钉钉（[Stream](https://open.dingtalk.com/document/direction/stream-mode-protocol-access-description) 和 [Outgoing Webhook](https://open.dingtalk.com/document/orgapp/receive-message.md) 共用 `ingestRobotPayload`）：引用文本，然后正文。
-- 企业微信入站（[应用回调](https://developer.work.weixin.qq.com/document/path/90930)、[机器人回调](https://developer.work.weixin.qq.com/document/path/100719)、[机器人长连接](https://developer.work.weixin.qq.com/document/path/101463)）：引用文本，然后正文。
-- QQ（[C2C](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/c2c_message_create.html)、[群](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_at_message_create.html)、[频道](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/event.html)）：引用消息元素，然后正文。
-- Slack（[`message.im`](https://docs.slack.dev/reference/events/message.im)、[`app_mention`](https://docs.slack.dev/reference/events/app_mention/)、[`message`](https://docs.slack.dev/reference/events/message)）：当前消息正文，先做 Slack 实体解码。
-- Telegram（[`Message`](https://core.telegram.org/bots/api#message)）：`text` 或 `caption`，然后 `reply_to_message` 的 `text` 或 `caption`。
-- Discord Gateway（[`MESSAGE_CREATE`](https://discord.com/developers/docs/events/gateway-events#message-create)）：`referenced_message.content`，然后当前消息。
-- Discord Interactions（[互动回调](https://discord.com/developers/docs/interactions/receiving-and-responding)）：`interaction.message.content`，然后本次输入的文本。
-- WhatsApp（[Webhook 负载](https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples)）：消息正文，然后用回复里的 `context.id` 查 `SentMessageTracker`（本进程发出去的消息 id）。这张表在内存里，条数达到 `DEFAULT_OUTBOUND_ECHO_CACHE_SIZE` 时丢掉最旧的一条。查不到就留下按字段拼出的 id。
+已经是平台前缀的 id（`p2p:`、`group:`、`dm:`、`channel:`、`thread:`、`c2c:`、`direct:`、`app:`、`aibot:`、`webhook:`、`user:`）仍然会按收件人解析。入站代码不再拼这些前缀。`msg:` 不是收件人，所以在这个会话里回复时，需要显式目标、按这个 id 缓存的 session webhook 或 `response_url`，或者更早绑上的结构化 id。
+
+入站 payload 里已经带原文的引用：钉钉 `text.repliedMsg.content`；企微 `quote` 的文本、语音和混合消息；QQ 引用元素的 `content`；微信 iLink 的 `ref_msg` 文本或标题；Slack 的正文（引用写在正文里）；Telegram 的 `reply_to_message` 文本或说明，以及 `quote.text`；Discord Gateway 的 `referenced_message.content`；Discord Interactions 的 `interaction.message.content`。
+
+只给 id、因此这条消息得到新的 `msg:` id：飞书的 `parent_id` 和 `root_id`；WhatsApp 的 `messages[].context.id`；Discord 的 `message_reference` 在没有 `referenced_message.content` 时；Slack 的 `thread_ts` 在正文没有标记时；微信公众号没有引用字段；QQ、iLink、钉钉的引用对象只有 id、没有文本时。
 
 | 连接器 | 接入方式 | 情况 | 拼成 | 何时复用 | 何时新建 |
 | --- | --- | --- | --- | --- | --- |
-| 飞书 | Webhook、WebSocket | 私聊，有 `open_id` | `p2p:<open_id>`，取 `sender.open_id` | 同一个 `open_id`，且没有标记胜出 | 另一个 `open_id`，或标记里的 id |
-| 飞书 | Webhook、WebSocket | 私聊，没有 `open_id`，有 `user_id` | `p2p:user:<user_id>`，取 `sender.user_id` | 同一个 `user_id`，且没有标记胜出 | 另一个 `user_id`，或标记里的 id |
-| 飞书 | Webhook、WebSocket | 私聊，只有 `chat_id` | `p2p:<chat_id>`，取 `chat_id` | 同一个 `chat_id`，且没有标记胜出 | 另一个 `chat_id`，或标记里的 id |
-| 飞书 | Webhook、WebSocket | 群，没有 `thread_id` | `group:<chat_id>`，取 `chat_id` | 同一个 `chat_id`，且没有标记胜出 | 另一个群，或标记里的 id |
-| 飞书 | Webhook、WebSocket | 群，有 `thread_id` | `group:<chat_id>:topic:<root>`，取 `chat_id` 和 `root_id`；没有 `root_id` 时用当前 `message_id` | 同一个群、同一个 root，且没有标记胜出 | 另一个 root，或标记里的 id |
-| 飞书 | `buildFeishuConversationContextId` | 传入了 `thread_id`，没有传入根消息 id | `group:<chat_id>:thread:<thread_id>` | 同一个群、同一个 `thread_id` | 另一个 `thread_id`。入站总会带上 root，所以实际收到的话题消息走上一行 |
-| 微信 | 公众号回调 | 一对一文本或语音 | `p2p:<FromUserName>` | 同一个 `FromUserName`，且正文里没有标记 | 另一个发送者，或标记里的 id |
-| 微信 | iLink | 一对一消息 | `p2p:<from_user_id>` | 同一个 `from_user_id`，且正文和引用里都没有标记 | 另一个发送者，或标记里的 id |
-| 钉钉 | Stream、Outgoing Webhook | 群，`conversationType` 为 `2` | `group:<conversationId>` | 同一个 `conversationId`，且没有标记胜出 | 另一个会话，或标记里的 id |
-| 钉钉 | Stream、Outgoing Webhook | 单聊且有 `senderStaffId`。`conversationType` 不是 `2` 时都按单聊，包括缺省 | `p2p:<senderStaffId>` | 同一个 `senderStaffId`，且没有标记胜出 | 另一个 staff id，或标记里的 id |
-| 钉钉 | Stream、Outgoing Webhook | 单聊且没有 `senderStaffId` | `p2p-id:<senderId>` | 同一个 `senderId`，且没有标记胜出 | 另一个 `senderId`，或标记里的 id |
-| 钉钉 | 入站模式 `none` | 不启动入站 | 该 session 第一次发送时的插件 UUID | 同一 session、同一连接器上之后的发送 | 这个 session 还没有钉钉 context 时的第一次发送 |
-| 企业微信 | HTTP 回调，XML | 单聊。没有 `ChatId`，因此算单聊 | `app:p2p:<FromUserName>` | 同一个 `FromUserName`，且没有标记胜出 | 另一个发送者，或标记里的 id |
-| 企业微信 | HTTP 回调，XML | 群。有 `ChatId` | `app:group:<ChatId>` | 同一个 `ChatId`，且没有标记胜出 | 另一个群，或标记里的 id |
-| 企业微信 | HTTP 回调 JSON、智能机器人长连接 | 群。`chattype` 为 `group` 且带了 `chatid` | `aibot:group:<chatid>` | 同一个 `chatid`，且没有标记胜出 | 另一个群，或标记里的 id |
-| 企业微信 | HTTP 回调 JSON、智能机器人长连接 | 单聊，或群负载里没有 `chatid` | `aibot:p2p:<userid>`，取 `from.userid` | 同一个 userid，且没有标记胜出 | 另一个发送者，或标记里的 id |
-| 企业微信 | 自建应用消息接口 | 这一项设置里没有回调，因此不在入站拼 id | 插件 UUID | 同一 session、同一连接器上之后的发送 | 这个 session 还没有企业微信 context 时的第一次发送 |
-| 企业微信 | 群机器人 Webhook | 仅出站。发送参数里的 `webhookKey` 不会改写 id | 插件 UUID。session 已经绑着 `webhook:<key>` 时保持这串字，发送时把它解析成群机器人 key | 同一 session 上之后的发送，或同一个 `webhook:<key>` | 这个 session 还没有企业微信 context 时的第一次发送 |
-| 企业微信 | 仅解析 | 已经存下来的 `p2p:<id>` 或 `group:<id>`。入站不会拼这两种前缀 | 按连接器的默认通道解读：没有应用配置、且配了回调或智能机器人时是 `aibot`，否则是 `app` | 已存的这串字 | 第一次把 session 绑到这串字 |
-| QQ | Webhook、WebSocket 网关 | 单聊 `C2C_MESSAGE_CREATE` | `c2c:<openId>`，依次取作者的 `user_openid`、`member_openid`、`id` | 同一个 open id，且没有标记胜出 | 另一个作者，或标记里的 id |
-| QQ | Webhook、WebSocket 网关 | 群 `GROUP_AT_MESSAGE_CREATE` | `group:<group_openid>` | 同一个 `group_openid`，且没有标记胜出 | 另一个群，或标记里的 id |
-| QQ | Webhook、WebSocket 网关 | 频道 `AT_MESSAGE_CREATE`，有 `guild_id` | `channel:<guild_id>:<channel_id>` | 同一个频道服务器和子频道，且没有标记胜出 | 另一个服务器或子频道，或标记里的 id |
-| QQ | Webhook、WebSocket 网关 | 频道 `AT_MESSAGE_CREATE`，没有 `guild_id` | `channel:<channel_id>` | 同一个 `channel_id`，且没有标记胜出 | 另一个子频道，或标记里的 id |
-| Slack | Events API、Socket Mode | IM 里的 `message`（`channel_type` 为 `im`，或频道 id 以 `D` 开头），且没有合法的 `thread_ts` | `dm:<channelId>` | 同一个 IM 频道，且正文里没有标记 | 另一个频道，或标记里的 id |
-| Slack | Events API、Socket Mode | IM 里的 `message`，带合法 `thread_ts` | `dm:<channelId>:<thread_ts>` | 同一个频道和 `thread_ts`，且正文里没有标记 | 另一个 thread，或标记里的 id |
-| Slack | Events API、Socket Mode | IM 里的 `app_mention` | `dm:<channelId>:<thread_ts 或 ts>` | 同一个频道和这个时间戳，且正文里没有标记 | 另一条 `ts` 的提及，或标记里的 id。顶层提及用 `ts`，所以每条顶层提及各自一个 id |
-| Slack | Events API、Socket Mode | 频道、群或 mpim 里的 `app_mention`。没有 `channel_type` 时，`D` 开头是 IM，`G` 开头是群，其余是频道。群和 mpim 仍然用 `channel:` 前缀 | `channel:<channelId>:<thread_ts 或 ts>` | 同一个频道和这个时间戳，且正文里没有标记 | 另一条 `ts` 的提及，或标记里的 id |
-| Slack | Events API、Socket Mode | 频道、群或 mpim 里的 thread 回复（有 `thread_ts`，且和 `ts` 不同） | `channel:<channelId>:<thread_ts>` | 同一个频道和 `thread_ts`，且正文里没有标记 | 另一个 thread，或标记里的 id |
-| Slack | Events API、Socket Mode | 频道、群或 mpim 里的顶层 `message`，且不是 `app_mention` | 不生成 `contextId`。这条事件被忽略 | 这次事件不存 id | 不新建 id。thread 回复走上一行 |
-| Telegram | 长轮询、Webhook、被动接收 | `private` | `p2p:<chat.id>`；`message_thread_id` 是正的安全整数时再加 `:<message_thread_id>` | 同一个 chat 和 thread id，且没有标记胜出 | 另一个 chat 或 thread，或标记里的 id |
-| Telegram | 长轮询、Webhook、被动接收 | `group` 或 `supergroup`。`is_topic_message` 不加一段 | `group:<chat.id>`；`message_thread_id` 是正的安全整数时再加 `:<message_thread_id>` | 同一个 chat 和 thread id，且没有标记胜出 | 另一个 chat 或 thread，或标记里的 id |
-| Telegram | 格式化与解析 | 频道更新在拼 id 之前就被丢掉。`formatTelegramContextId` 仍可以拼出频道 id，并且不附加 thread id。解析时还接受 `direct:`（私聊）和 `supergroup:`（群）；格式化写出的是 `p2p:` 和 `group:` | 调用方格式化频道时为 `channel:<chatId>` | 已存的这串字 | 第一次绑定这串字 |
-| Discord | Gateway | 私聊或群私聊（没有 `guild_id`，或频道类型是 DM / group DM） | `dm:<channel_id>` | 同一个频道，且没有标记胜出 | 另一个频道，或标记里的 id |
-| Discord | Gateway | thread（公告、公开或私密），且拿到了父频道 id | `thread:<parent_id>:<thread_id>` | 同一个父频道和 thread，且没有标记胜出 | 另一个 thread，或标记里的 id |
-| Discord | Gateway | thread，父频道 id 没有取到 | `thread:<thread_id>` | 同一个 thread id，且没有标记胜出 | 另一个 thread，或标记里的 id |
-| Discord | Gateway | 其他服务器频道 | `channel:<channel_id>` | 同一个频道，且没有标记胜出 | 另一个频道，或标记里的 id |
-| Discord | Gateway | 打开了 `autoCreateThreadOnMention`（默认关），消息在服务器频道里，且没有标记 | 建出 thread 之后：`thread:<原来的 channel_id>:<新 thread id>`。创建失败则仍是 `channel:<channel_id>` | 之后的消息走这个新 thread | 每次创建成功都会新建，因为 thread id 是新的 |
-| Discord | Interactions Webhook | 互动所在的私聊、thread 或服务器频道。这条路径不会自动建 thread | 与 Gateway 相同的 `dm:` / `thread:` / `channel:`，频道取自本次互动 | 同一个频道或 thread，且没有标记胜出 | 另一个频道或 thread，或标记里的 id |
-| Discord | 发送时解析 | `user:<用户 snowflake>` 可以作为发送目标。入站不会分配它 | 这串字已经是 context 时为 `user:<userId>` | 已存的这串字 | 第一次绑定这串字 |
-| WhatsApp | Cloud API Webhook | 一对一。没有 `group_id` | `direct:<wa_id>`，取联系人 `wa_id`；联系人没有 `wa_id` 时用 `from`。只做 trim，不去掉非数字字符 | 最终字符串已经绑定：没有标记且追踪表未命中时是这条 `wa_id`；wamid 还在缓存里时是当时发出去的那个 id | 另一个 `wa_id`、标记里的 id，或会话表里还没有的追踪 id |
-| WhatsApp | Cloud API Webhook | 群。有 `group_id` | `group:<group_id>` | 最终字符串已经绑定：没有标记且追踪表未命中时是这条 `group_id`；wamid 还在缓存里时是当时发出去的那个 id | 另一个群、标记里的 id，或会话表里还没有的追踪 id |
-| WhatsApp | 发送时解析 | `p2p:<id>` 可以作为一对一接收人。入站写出的是 `direct:` | 已存的 `p2p:` 字符串 | 已存的这串字 | 第一次绑定这串字 |
-| 插件 | 任意连接器，出站 | 这个 session 对当前连接器还没有 context | `contextIdGenerator` 给出的 UUID（默认 `randomUUID()`） | 同一 session、同一连接器上之后的发送 | 这一次首次发送。配置了自定义 generator 时，由它给出字符串 |
-| 插件 | 任意连接器，入站 | 连接器给出的字符串已经绑在一个还活着的 session 上 | 已存的 `<连接器名>--<contextId>` | 那个 session | 另一串字会打开另一个 session |
-| 插件 | 任意连接器，入站 | 这串字没有活着的 session。已经消失的 session 会先被删掉 | 连接器给出的字符串，保持原样 | `contextId` 仍是连接器给出的那一串 | 新建一个 session，并绑上同一串字 |
-| 插件 | 任意连接器，绑定 | 这个 session 对当前连接器已经有另一个 `contextId`，或这串字已经绑在别的 session 上 | 已有的绑定 | 第一条保持不变。第二次绑定被拒绝 | 不新建 id。`bind` 抛错 |
-
-按字段拼出来的 id 来自 `buildFeishuConversationContextId`、`formatWeixinP2pContextId`、`formatDingTalkP2PContextId` / `formatDingTalkEncryptedP2PContextId` / `formatDingTalkGroupContextId`、`formatWeComContextId`、`formatQqContextId`、`formatSlackContextId`、`formatTelegramContextId`、`formatDiscordDmContextId` / `formatDiscordThreadContextId` / `formatDiscordChannelContextId` / `formatDiscordUserContextId`、`formatWhatsAppContextId`。
+| 飞书 | Webhook、WebSocket | 任何接受的 `im.message.receive_v1`，单聊或群聊 | 事件正文里的标记，否则 `msg:<message_id>` | 这个字符串已经绑在存活会话上 | 没有标记，或这个字符串的存活会话没了。不读取 `parent_id` |
+| 微信 | 公众号回调 | 单聊文本或语音 | `Content` 或语音 `Recognition` 里的标记，否则 `msg:<MsgId>`。没有 `MsgId` 时用 `msg:<FromUserName>:<CreateTime>` | 这个字符串已经绑在存活会话上 | 没有标记，或存活会话没了 |
+| 微信 | iLink | 单聊消息 | 正文或 `ref_msg` 文本/标题里的标记，否则 `msg:<message_id>`；没有 `message_id` 时用 `msg:<client_id>`。`context_token` 不是 context id | 这个字符串已经绑在存活会话上 | 没有标记，包括只有 id 的引用，或存活会话没了 |
+| 钉钉 | Stream、Outgoing webhook | 任何接受的机器人消息，单聊或群聊 | 正文或 `text.repliedMsg.content` 里的标记，否则 `msg:<msgId>`（Stream 退回到回调 message id）。两个 id 都没有时，有标记仍用标记，否则是 `allocateContextId()` 的原始 UUID | 这个字符串已经绑在存活会话上。按这个 id 缓存的 session webhook 就是回复通道 | 没有标记，或存活会话没了 |
+| 钉钉 | 入站模式 `none` | 没有入站传输 | 第一次发送时的插件 UUID。发出的正文仍带标记 | 同一会话、同一连接器上的后续发送 | 这个会话还没有钉钉 context 时的第一次发送 |
+| 企微 | HTTP 回调，XML | 单聊或群聊的应用回调 | 正文或引用里的标记，否则 `msg:<MsgId>`。没有 `MsgId` 时用 `msg:<FromUserName>:<CreateTime>` | 这个字符串已经绑在存活会话上 | 没有标记，或存活会话没了 |
+| 企微 | HTTP 回调 JSON、智能机器人长连接 | 单聊或群聊的智能机器人消息 | 正文或引用里的标记，否则 `msg:<msgid>`。没有 `msgid` 时用 `msg:<userid>:<当前时间>` | 这个字符串已经绑在存活会话上。按这个 id 缓存的 `response_url` 就是回复通道 | 没有标记，或存活会话没了 |
+| 企微 | 自建应用消息 API | 这个设置表单没有回调 | 插件 UUID。发出的正文仍带标记 | 同一会话、同一连接器上的后续发送 | 这个会话还没有企微 context 时的第一次发送 |
+| 企微 | 群机器人 Webhook | 只出站 | 插件 UUID。发出的正文仍带标记。会话已经绑着 `webhook:<key>` 时保持这个字符串，发送时把它解析成群机器人 key | 同一会话上的后续发送，或同一个 `webhook:<key>` | 这个会话还没有企微 context 时的第一次发送 |
+| QQ | Webhook、WebSocket 网关 | 单聊、群或频道 | 正文或引用元素 `content` 里的标记，否则 `msg:<消息 id>` | 这个字符串已经绑在存活会话上 | 没有标记，包括只有 id 的引用元素，或存活会话没了 |
+| Slack | Events API、Socket Mode | 接受的私聊、`app_mention` 或 thread 回复 | 正文里的标记，否则 `msg:<channel id>:<ts>` | 这个字符串已经绑在存活会话上 | 没有标记。同一频道或 thread 里的下一条消息有不同的 `ts`。不是 `app_mention` 的频道顶层 `message` 会被忽略，没有 id |
+| Telegram | 长轮询、Webhook、被动接收 | 接受的私聊、群或超级群消息 | `text`/`caption`、`reply_to_message` 的文本/说明，或 `quote.text` 里的标记，否则 `msg:<chat id>:<message_id>`。论坛话题 id 不进这个 id | 这个字符串已经绑在存活会话上 | 没有标记，或存活会话没了。频道更新在拼 id 之前就丢掉 |
+| Discord | Gateway | 私聊、thread 或服务器频道 | 消息正文或 `referenced_message.content` 里的标记，否则 `msg:<message id>`。自动创建的 thread 不替换这个 id | 这个字符串已经绑在存活会话上 | 没有标记，包括没有正文的 `message_reference`，或存活会话没了 |
+| Discord | 互动回调 | 命令、组件或弹窗 | 提示文本或 `interaction.message.content` 里的标记，否则 `msg:<interaction id>` | 这个字符串已经绑在存活会话上 | 没有标记的每次互动，或存活会话没了 |
+| WhatsApp | Cloud API Webhook | 单聊或群 | 正文里的标记，否则 `msg:<wamid>`。`messages[].context` 只有 `{from, id}`，不会去拉原文 | 这个字符串已经绑在存活会话上 | 没有标记，包括滑动回复，或存活会话没了 |
+| 任意 | 发送 | context id 已经是平台前缀（`p2p:`、`group:`、`dm:`、`channel:`、`thread:`、`c2c:`、`direct:`、`app:`、`aibot:`、`webhook:`、`user:`）。入站不再拼这些前缀 | 存下来的字符串。发送时把它解析成收件人 | 绑着这个字符串的存活会话 | 第一次绑上这个字符串。`msg:` 不是收件人 |
+| 插件 | 任意连接器，出站 | 这个会话还没有该连接器的 context | `contextIdGenerator` 的 UUID（默认 `randomUUID()`） | 同一会话、同一连接器上的后续发送 | 那一次首次发送。配置了自定义生成器时，由它提供字符串 |
+| 插件 | 任意连接器，入站 | 连接器给出的字符串已经绑在存活会话上 | 存下来的 `<连接器名>--<contextId>` | 那个会话。两个不同的消息 id 是两个字符串，即使在同一个聊天里 | 不同的字符串会另开会话 |
+| 插件 | 任意连接器，入站 | 这个字符串没有存活会话。缺失的会话会先删掉绑定 | 连接器给出的字符串，不改写 | 字符串保持连接器拼出来的那个 | 用同一个字符串新开一个会话 |
+| 插件 | 任意连接器，绑定 | 这个会话对该连接器已经有另一个 context id，或这个字符串已经绑在别的会话上 | 已有的绑定 | 第一个 id 保持。第二次绑定被拒绝 | 不会新建 id。`bind` 抛错 |
 
 ## 与 dsh 的版本兼容性
 

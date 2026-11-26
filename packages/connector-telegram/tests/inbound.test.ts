@@ -127,7 +127,7 @@ describe("Telegram inbound update parsing, routing, mention gating, and reply pr
       botUsername: BOT_USERNAME,
     });
     expect(res).toBeDefined();
-    expect(res?.contextId).toBe("p2p:777888:5");
+    expect(res?.contextId).toBe("msg:777888:201");
     expect(res?.payload.text).toBe("Summarize today's alerts");
     expect(res?.meta.idempotencyKey).toBe("telegram:777888:201");
     expect(res?.meta.suggestedTitle).toBe("[Telegram] Alice Chen #5");
@@ -165,7 +165,7 @@ describe("Telegram inbound update parsing, routing, mention gating, and reply pr
         botUsername: BOT_USERNAME,
         groupTriggerMode: "all",
       })?.contextId,
-    ).toBe("group:-100123456:99");
+    ).toBe("msg:-100123456:300");
 
     // Emoji prefix ("🚀 " = 3 UTF-16 code units) before @dsh_helper_bot entity
     const prefix = "🚀 ";
@@ -188,7 +188,7 @@ describe("Telegram inbound update parsing, routing, mention gating, and reply pr
       botId: BOT_ID,
       botUsername: BOT_USERNAME,
     });
-    expect(normalizedMention?.contextId).toBe("group:-100123456:99");
+    expect(normalizedMention?.contextId).toBe("msg:-100123456:301");
     expect(normalizedMention?.payload.mentionedBot).toBe(true);
     expect(normalizedMention?.payload.text).toBe("🚀 check pod logs");
     expect(

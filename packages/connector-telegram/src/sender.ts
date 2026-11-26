@@ -56,7 +56,7 @@ export class TelegramSender<TName extends string = "telegram"> implements Connec
     this.description =
       options.description ??
       "Send a text message to a Telegram private chat, group, or Forum Topic via Telegram Bot API.";
-    this.includeContextMarker = options.includeContextMarker ?? false;
+    this.includeContextMarker = options.includeContextMarker ?? true;
     this.contextMarkerStyle = options.contextMarkerStyle ?? "html-comment";
     this.maxMessageLength = options.maxMessageLength ?? TELEGRAM_MAX_MESSAGE_LENGTH;
   }

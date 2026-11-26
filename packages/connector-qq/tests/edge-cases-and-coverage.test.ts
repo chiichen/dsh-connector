@@ -263,7 +263,7 @@ describe("Stage 4: Comprehensive edge-case and error-handling coverage", () => {
     expect(capturedUrls[0]).toBe(`${QQ_SANDBOX_API_BASE_URL}/v2/users/U_EVT/messages`);
     expect(capturedPayloads[0]).toEqual({
       msg_type: 0,
-      content: "welcome",
+      content: "[#ctx:c2c:U_EVT]\nwelcome",
       event_id: "EVT_FRIEND_ADD",
       msg_seq: 3,
     });
@@ -275,7 +275,7 @@ describe("Stage 4: Comprehensive edge-case and error-handling coverage", () => {
       eventId: "EVT_CH",
     });
     expect(capturedPayloads[1]).toEqual({
-      markdown: { content: "**md**" },
+      markdown: { content: "[#ctx:channel:CH_MD]\n**md**" },
       event_id: "EVT_CH",
     });
 

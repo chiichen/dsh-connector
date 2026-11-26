@@ -333,8 +333,8 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
       expect(body["coolAppCode"]).toBe("COOLAPP-DEFAULT");
       expect(body["msgKey"]).toBe("sampleMarkdown");
       expect(JSON.parse(String(body["msgParam"]))).toEqual({
-        title: "Deploy Done",
-        text: "## Deploy Done\nVersion 1.2.0",
+        title: "[#ctx:group:cidGroupAbc==]",
+        text: "[#ctx:group:cidGroupAbc==]\n## Deploy Done\nVersion 1.2.0",
       });
     });
 
@@ -367,7 +367,7 @@ describe("Stage 2: DingTalk OAuth2 accessToken, Outgoing signature verification,
       const [, firstInit] = fetchMock.mock.calls[0]!;
       expect(JSON.parse(String(firstInit?.body))).toEqual({
         msgtype: "text",
-        text: { content: "Hi external user" },
+        text: { content: "[#ctx:p2p-id:$:LWCP_v1:$encUser]\nHi external user" },
         at: { atUserIds: ["staff-1"] },
       });
 

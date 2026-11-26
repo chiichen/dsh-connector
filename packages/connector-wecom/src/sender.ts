@@ -141,7 +141,7 @@ export class WeComSender<TName extends string = "wecom"> implements ConnectorSen
       (options.apiClient.app === undefined && options.aibotTransport !== undefined
         ? "aibot"
         : "app");
-    this.includeContextMarkerByDefault = options.includeContextMarkerByDefault ?? false;
+    this.includeContextMarkerByDefault = options.includeContextMarkerByDefault ?? true;
     this.contextMarkerStyle = options.contextMarkerStyle ?? "bracket";
     this.description =
       options.description ??
@@ -313,6 +313,18 @@ export class WeComSender<TName extends string = "wecom"> implements ConnectorSen
             ? WECOM_AIBOT_CHAT_TYPE_GROUP
             : WECOM_AIBOT_CHAT_TYPE_SINGLE,
         targetLabel: parsedContext.targetId,
+      };
+    }
+
+    // Message-scoped context ids (`msg:…` or an extracted marker) are not chat ids.
+    // A single-use Intelligent Bot response_url cached for this exact context is still a route.
+    const cachedResponseUrl = this.consumeCachedResponseUrl?.(context.contextId);
+    if (cachedResponseUrl !== undefined) {
+      return {
+        channel: "aibot",
+        mode: "response_url",
+        responseUrl: cachedResponseUrl,
+        targetLabel: context.contextId,
       };
     }
 

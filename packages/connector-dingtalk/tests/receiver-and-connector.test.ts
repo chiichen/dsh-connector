@@ -291,8 +291,8 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
         expect(formatted.text).toContain("@Bot please follow up");
       }
 
-      // Outbound reply on `group:cidGroup7788==` in webhook-only mode automatically uses cached sessionWebhook!
-      const sendRes = await sender.send(createConnectorContext(connector, "group:cidGroup7788=="), {
+      // Reply in the inbound session uses the sessionWebhook cached under that context id.
+      const sendRes = await sender.send(received[0]!.context, {
         text: "Acknowledged INC-7788",
       });
       expect(sendRes.channel).toBe("sessionWebhook");
@@ -325,7 +325,7 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
         ),
       });
       expect(received).toHaveLength(2);
-      expect(received[1]!.context.contextId).toBe("p2p:bob02");
+      expect(received[1]!.context.contextId).toBe("msg:msg-rich-1");
       expect(received[1]!.params.text).toBe("Line one\n[picture]\nLine two");
 
       await receiver.handleWebhook!({
@@ -349,7 +349,7 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
         ),
       });
       expect(received).toHaveLength(3);
-      expect(received[2]!.context.contextId).toBe("p2p-id:$:LWCP_v1:$externalOnly");
+      expect(received[2]!.context.contextId).toBe("msg:msg-audio-1");
       expect(received[2]!.params.text).toBe("语音识别内容");
 
       await connector.stop();
@@ -490,7 +490,7 @@ describe("Stage 3: DingTalkReceiver (Webhook + Stream WebSocket) and DingTalkCon
         expect(received).toHaveLength(1);
       });
       expect(received[0]!.context).toEqual(
-        createConnectorContext("dingtalk-stream", "p2p:staff101"),
+        createConnectorContext("dingtalk-stream", "msg:dt-msg-101"),
       );
       expect(received[0]!.params.text).toBe("Stream hello!");
       expect(received[0]!.meta?.idempotencyKey).toBe("dt-msg-101");

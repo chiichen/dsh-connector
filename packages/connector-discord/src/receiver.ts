@@ -10,8 +10,10 @@
  */
 
 import {
+  contextIdFromMessageId,
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
   type ConnectorInboundPrompt,
   type ConnectorReceiver,
@@ -28,12 +30,7 @@ import {
   DISCORD_THREAD_CHANNEL_TYPES,
   DISCORD_USER_MESSAGE_TYPES,
 } from "./constants";
-import {
-  formatDiscordChannelContextId,
-  formatDiscordDmContextId,
-  formatDiscordThreadContextId,
-  stripDiscordBotMentions,
-} from "./context-target";
+import { stripDiscordBotMentions } from "./context-target";
 import type { DiscordGatewayDispatchContext } from "./gateway";
 import {
   discordReceiveSchema,
@@ -230,7 +227,13 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
       : message.content.trim();
     const selfMarker = extractContextMarker(contentWithoutMention);
 
-    const extractedContextId = refMarker?.contextId ?? selfMarker.contextId;
+    const contextId = resolveInboundContextId({
+      messageId: message.id,
+      body: contentWithoutMention,
+      quotedTexts: [message.referenced_message?.content ?? undefined],
+    });
+    const extractedContextId =
+      contextId === contextIdFromMessageId(message.id) ? undefined : contextId;
     const cleanText = selfMarker.cleanedContent.trim();
     const attachments = normalizeAttachments(message);
 
@@ -276,16 +279,7 @@ export class DiscordReceiver<TName extends string = "discord"> implements Connec
       }
     }
 
-    const defaultContextId = isDirectMessage
-      ? formatDiscordDmContextId(effectiveChannelId)
-      : isThread && effectiveThreadId
-        ? formatDiscordThreadContextId(effectiveThreadId, parentChannelId)
-        : formatDiscordChannelContextId(effectiveChannelId);
-
-    const context = createConnectorContext(
-      this.#connectorName,
-      extractedContextId ?? defaultContextId,
-    );
+    const context = createConnectorContext(this.#connectorName, contextId);
 
     const effectiveText =
       cleanText ||

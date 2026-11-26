@@ -22,8 +22,8 @@ import {
   ConnectorAuthError,
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
-  type ConnectorContextId,
   type ConnectorInboundPrompt,
   type ConnectorReceiver,
   type ConnectorReceiverContext,
@@ -43,7 +43,6 @@ import {
   SECONDS_TO_MS,
   WECOM_RESPONSE_URL_TTL_MS,
 } from "./constants";
-import { formatWeComContextId } from "./context-target";
 import { WeComMsgCrypt, extractEncryptedCallbackEnvelope, parseWeComXmlFields } from "./crypto";
 import type { WeComStreamingAdapter, WeComStreamRefreshCallbackPayload } from "./streaming";
 import { wecomReceiveSchema, type WeComCallbackConfig, type WeComReceiveParams } from "./types";
@@ -774,15 +773,11 @@ export class WeComReceiver<TName extends string = "wecom"> implements ConnectorR
     const extractedQuote =
       input.rawQuotedText !== undefined ? extractContextMarker(input.rawQuotedText) : undefined;
 
-    const fallbackContextId = formatWeComContextId({
-      channel: input.defaultChannel,
-      peerKind: input.chatType === "group" && input.chatId !== undefined ? "group" : "p2p",
-      targetId:
-        input.chatType === "group" && input.chatId !== undefined ? input.chatId : input.senderId,
+    const resolvedContextId = resolveInboundContextId({
+      messageId: input.messageId,
+      body: input.rawText,
+      quotedTexts: [input.rawQuotedText],
     });
-
-    const resolvedContextId: ConnectorContextId =
-      extractedQuote?.contextId ?? extractedText.contextId ?? fallbackContextId;
 
     if (input.responseUrl !== undefined) {
       this.cacheResponseUrl(resolvedContextId, input.responseUrl);

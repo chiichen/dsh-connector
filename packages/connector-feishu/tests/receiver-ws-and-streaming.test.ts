@@ -270,7 +270,7 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
       const okRes = await receiver.handleWebhook!(validReq);
       expect(okRes.status).toBe(200);
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("p2p:ou_user_alice");
+      expect(received[0]?.context.contextId).toBe("msg:om_msg_1001");
       expect(received[0]?.params.text).toBe("Hello via encrypted webhook!");
       expect(received[0]?.idempotencyKey).toBe("om_msg_1001");
 
@@ -405,7 +405,7 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
         },
       });
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("group:oc_grp_1:topic:om_topic_root");
+      expect(received[0]?.context.contextId).toBe("msg:om_grp_mentioned");
       expect(received[0]?.params.text).toBe("please review with @Bob");
       expect(received[0]?.params.mentionedBot).toBe(true);
 
@@ -434,7 +434,7 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
       ).toContain("All pods healthy.");
     });
 
-    it("correlates replies to outbound-first messages by fetching parent_id message marker", async () => {
+    it("ignores parent_id when the reply text has no marker and reuses a marker carried in the reply text", async () => {
       const fetchMock = vi.fn<typeof fetch>(async (input) => {
         const url = String(input);
         if (url.endsWith("/open-apis/auth/v3/tenant_access_token/internal")) {
@@ -472,7 +472,7 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
       const receiver = connector.getReceiver();
       await receiver.init?.(ctx);
 
-      // User replies to om_proactive_bot_msg -> parent lookup extracts UUID contextId!
+      // parent_id alone does not reuse a session; this message gets its own context id.
       await receiver.handleWebhook!(
         buildWebhookReq({
           bodyObj: {
@@ -494,10 +494,13 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
       );
 
       expect(received).toHaveLength(1);
-      expect(received[0]?.context.contextId).toBe("550e8400-e29b-41d4-a716-446655440000");
+      expect(received[0]?.context.contextId).toBe("msg:om_user_reply_1");
       expect(received[0]?.params.text).toBe("Yes, please retry!");
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes("/im/v1/messages/")),
+      ).toBe(false);
 
-      // When parent lookup fails (e.g. missing im:message:readonly scope), gracefully falls back to p2p:ou_user_1
+      // A marker in this message's own text wins, even when parent_id points elsewhere.
       await receiver.handleWebhook!(
         buildWebhookReq({
           bodyObj: {
@@ -511,14 +514,15 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
                 chat_id: "oc_p2p_user",
                 chat_type: "p2p",
                 message_type: "text",
-                content: '{"text":"Fallback works!"}',
+                content: '{"text":"[#ctx:550e8400-e29b-41d4-a716-446655440000]\\nFallback works!"}',
               },
             },
           },
         }),
       );
       expect(received).toHaveLength(2);
-      expect(received[1]?.context.contextId).toBe("p2p:ou_user_1");
+      expect(received[1]?.context.contextId).toBe("550e8400-e29b-41d4-a716-446655440000");
+      expect(received[1]?.params.text).toBe("Fallback works!");
     });
   });
 
@@ -706,7 +710,7 @@ describe("Stage 3: Feishu Webhook v2.0, WebSocket long connection, @mention/loop
         expect(sock.sentFrames.length).toBeGreaterThanOrEqual(2);
       });
 
-      expect(received[0]?.context.contextId).toBe("p2p:ou_ws_user");
+      expect(received[0]?.context.contextId).toBe("msg:om_ws_msg_1");
       expect(received[0]?.params.text).toBe("Hello over WebSocket long connection!");
 
       const ackFrame = decodePbbp2Frame(sock.sentFrames[sock.sentFrames.length - 1]!);

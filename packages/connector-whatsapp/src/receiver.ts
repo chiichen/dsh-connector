@@ -1,6 +1,7 @@
 import {
   createConnectorContext,
   extractContextMarker,
+  resolveInboundContextId,
   type ConnectorContext,
   type ConnectorInboundPrompt,
   type ConnectorLogger,
@@ -29,11 +30,7 @@ import {
   WHATSAPP_WEBHOOK_MESSAGES_FIELD,
   WHATSAPP_WEBHOOK_OBJECT,
 } from "./constants";
-import {
-  formatWhatsAppContextId,
-  normalizeWhatsAppPhoneDigits,
-  type SentMessageTracker,
-} from "./context-id";
+import { normalizeWhatsAppPhoneDigits, type SentMessageTracker } from "./context-id";
 import {
   getHeaderCaseInsensitive,
   verifyHubVerifyToken,
@@ -444,9 +441,7 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
               continue;
             }
 
-            const { contextId: markerContextId, cleanedContent } = extractContextMarker(
-              extractedText.rawText,
-            );
+            const { cleanedContent } = extractContextMarker(extractedText.rawText);
             if (cleanedContent.trim().length === 0) {
               ignored += 1;
               continue;
@@ -468,17 +463,10 @@ export function createWhatsAppReceiver<TName extends string = "whatsapp">(
               groupIdRaw !== undefined && groupIdRaw.length > 0 ? groupIdRaw : undefined;
             const recipientType = groupId !== undefined ? "group" : "individual";
 
-            const trackedReplyContextId =
-              replyToMessageId !== undefined
-                ? config.sentMessageTracker.getContextId(replyToMessageId)
-                : undefined;
-            const resolvedContextId =
-              markerContextId ??
-              trackedReplyContextId ??
-              formatWhatsAppContextId({
-                recipientType,
-                to: groupId ?? waId,
-              });
+            const resolvedContextId = resolveInboundContextId({
+              messageId: msgId,
+              body: extractedText.rawText,
+            });
 
             const connectorCtx = createConnectorContext(config.connectorName, resolvedContextId);
             const timestampStr = msg.timestamp?.trim() || "0";

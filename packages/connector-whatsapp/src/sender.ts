@@ -165,7 +165,7 @@ export function createWhatsAppSender<TName extends string = "whatsapp">(
   );
   const requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_WHATSAPP_REQUEST_TIMEOUT_MS;
   const maxTextLength = config.maxTextLength ?? WHATSAPP_MAX_TEXT_LENGTH;
-  const markerStyle = config.contextMarkerStyle ?? false;
+  const markerStyle = config.contextMarkerStyle ?? "bracket";
 
   return {
     description: config.description ?? DEFAULT_WHATSAPP_SENDER_DESCRIPTION,
