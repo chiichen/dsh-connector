@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-feishu",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Feishu (Lark) IM connector for dsh-connector supporting HTTP Webhook v2.0, WebSocket long connection, and REST messaging",
   "license": "MIT",
   "files": [

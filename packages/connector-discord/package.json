@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-discord",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Discord API v10 connector (Gateway WebSocket, Interactions Webhook, and REST v10) for dsh-connector",
   "license": "MIT",
   "files": [

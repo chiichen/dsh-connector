@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-dingtalk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DingTalk robot connector (Stream WebSocket & Outgoing Webhook + OpenAPI v1.0) for dsh-connector",
   "license": "MIT",
   "files": [
