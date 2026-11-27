@@ -1,13 +1,13 @@
 {
-  "packages/connector-core": "0.1.0",
-  "packages/connector-dingtalk": "0.1.0",
-  "packages/connector-discord": "0.1.0",
-  "packages/connector-feishu": "0.1.0",
-  "packages/connector-qq": "0.1.0",
-  "packages/connector-slack": "0.1.0",
-  "packages/connector-telegram": "0.1.0",
-  "packages/connector-wecom": "0.1.0",
-  "packages/connector-weixin": "0.1.0",
-  "packages/connector-whatsapp": "0.1.0",
-  "packages/dsh-connector-plugin": "0.1.0"
+  "packages/connector-core": "0.2.0",
+  "packages/connector-dingtalk": "0.2.0",
+  "packages/connector-discord": "0.2.0",
+  "packages/connector-feishu": "0.2.0",
+  "packages/connector-qq": "0.2.0",
+  "packages/connector-slack": "0.2.0",
+  "packages/connector-telegram": "0.2.0",
+  "packages/connector-wecom": "0.2.0",
+  "packages/connector-weixin": "0.2.0",
+  "packages/connector-whatsapp": "0.2.0",
+  "packages/dsh-connector-plugin": "0.2.0"
 }

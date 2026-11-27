@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Core contracts and stateless context definitions for dsh-connector",
   "license": "MIT",
   "files": [

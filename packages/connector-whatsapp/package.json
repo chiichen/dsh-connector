@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-whatsapp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Meta WhatsApp Business Cloud API connector for dsh-connector",
   "license": "MIT",
   "files": [

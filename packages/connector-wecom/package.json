@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-wecom",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Enterprise WeChat (WeCom) connector for DeepSeek Harness supporting self-built apps, group webhooks, and intelligent bots",
   "license": "MIT",
   "files": [

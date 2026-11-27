@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-telegram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Telegram Bot API connector for dsh-connector with getUpdates long polling, webhook secret-token verification, Forum Topic routing, and streaming extension seam",
   "license": "MIT",
   "files": [

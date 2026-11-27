@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-weixin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WeChat (Official Account / Customer Service & iLink Bot) connector for dsh-connector",
   "license": "MIT",
   "files": [

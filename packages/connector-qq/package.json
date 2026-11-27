@@ -1,6 +1,6 @@
 {
   "name": "@dsh-connector/connector-qq",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Official QQ Bot Open Platform connector for dsh-connector",
   "license": "MIT",
   "files": [

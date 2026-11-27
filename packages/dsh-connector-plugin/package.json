@@ -1,6 +1,6 @@
 {
   "name": "dsh-connector-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unified DeepSeek Harness (dsh) plugin for external service connectors",
   "license": "MIT",
   "files": [
